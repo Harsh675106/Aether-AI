@@ -1,11 +1,11 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from app.agents.planner import PlaceholderPlanner
 from app.chat.service import ChatService
 from app.core.settings import Settings
 from app.memory.chroma_manager import ChromaMemoryManager
 from app.memory.history_store import ConversationHistoryStore
-from app.monitoring.service import MonitoringService
+from app.monitoring.service import MonitoringService, get_monitoring_service
 from app.web.search import SearXNGClient, WebContentExtractor
 from app.plugins.manager import PlaceholderPluginManager
 from app.rag.engine import PlaceholderRagEngine
@@ -18,9 +18,10 @@ from app.tools.manager import PlaceholderToolManager
 from app.workflow.engine import PlaceholderWorkflowEngine
 
 
-@dataclass(frozen=True)
+@dataclass
 class ApplicationContainer:
     settings: Settings
+    _monitoring_service: MonitoringService = field(default_factory=get_monitoring_service, init=False)
 
     def system_service(self) -> SystemService:
         return SystemService(settings=self.settings)
@@ -58,11 +59,6 @@ class ApplicationContainer:
     def rag_engine(self) -> PlaceholderRagEngine:
         return PlaceholderRagEngine()
 
-    def monitoring_service(self) -> MonitoringService:
-        if not hasattr(self, "_monitoring_service"):
-            object.__setattr__(self, "_monitoring_service", MonitoringService())
-        return self._monitoring_service
-
     def plugin_manager(self) -> PlaceholderPluginManager:
         return PlaceholderPluginManager()
 
@@ -77,4 +73,7 @@ class ApplicationContainer:
 
     def encryption_service(self) -> EncryptionService:
         return EncryptionService()
+
+    def monitoring_service(self) -> MonitoringService:
+        return self._monitoring_service
 

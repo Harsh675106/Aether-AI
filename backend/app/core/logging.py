@@ -4,6 +4,7 @@ import sys
 import structlog
 
 from app.core.settings import Settings
+from app.monitoring.service import MonitoringLogHandler, get_monitoring_service
 
 
 def configure_logging(settings: Settings) -> None:
@@ -12,6 +13,14 @@ def configure_logging(settings: Settings) -> None:
         stream=sys.stdout,
         level=getattr(logging, settings.log_level.upper(), logging.INFO),
     )
+
+    root_logger = logging.getLogger()
+    if not any(isinstance(handler, MonitoringLogHandler) for handler in root_logger.handlers):
+        monitoring_handler = MonitoringLogHandler(service=get_monitoring_service())
+        monitoring_handler.setFormatter(logging.Formatter("%(message)s"))
+        root_logger.addHandler(monitoring_handler)
+
+    root_logger.setLevel(getattr(logging, settings.log_level.upper(), logging.INFO))
     structlog.configure(
         processors=[
             structlog.contextvars.merge_contextvars,

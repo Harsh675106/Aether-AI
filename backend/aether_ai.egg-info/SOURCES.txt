@@ -18,6 +18,7 @@ backend/app/api/v1/router.py
 backend/app/api/v1/routes/__init__.py
 backend/app/api/v1/routes/chat.py
 backend/app/api/v1/routes/health.py
+backend/app/api/v1/routes/monitoring.py
 backend/app/api/v1/routes/system.py
 backend/app/chat/__init__.py
 backend/app/chat/orchestrator.py
@@ -48,6 +49,8 @@ backend/app/middleware/exception_handler.py
 backend/app/middleware/request_id.py
 backend/app/models/__init__.py
 backend/app/models/audit_event.py
+backend/app/monitoring/__init__.py
+backend/app/monitoring/service.py
 backend/app/plugins/__init__.py
 backend/app/plugins/manager.py
 backend/app/rag/__init__.py

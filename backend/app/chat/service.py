@@ -18,7 +18,7 @@ from app.web.search import SearXNGClient, WebSearchPipeline
 logger = get_logger(__name__)
 
 
-@dataclass(frozen=True)
+@dataclass
 class ChatService:
     orchestrator: ConversationOrchestrator
     monitoring_service: MonitoringService | None = None
@@ -35,8 +35,7 @@ class ChatService:
     ) -> "ChatService":
         provider = OllamaProvider(settings)
         client = web_search_client or SearXNGClient(settings.searxng_base_url)
-        monitoring_service = monitoring_service or MonitoringService()
-        pipeline = WebSearchPipeline(search_client=client, monitoring_service=monitoring_service)
+        pipeline = WebSearchPipeline(search_client=client)
         orchestrator = ConversationOrchestrator(
             llm_provider=provider,
             settings=settings,
@@ -56,16 +55,6 @@ class ChatService:
             raise HTTPException(status_code=400, detail="At least one message is required")
 
         try:
-            if self.monitoring_service is not None:
-                await self.monitoring_service.publish_event(
-                    event_type="activity",
-                    subsystem="chat",
-                    severity="info",
-                    category="workflow",
-                    title="Chat request received",
-                    description="A chat request started streaming to the assistant.",
-                    correlation_id=request.conversation_id,
-                )
             async for token in self.orchestrator.stream_response(
                 [message.model_dump() for message in request.messages],
                 conversation_id=request.conversation_id,

@@ -1,11 +1,13 @@
 import asyncio
 
 import pytest
+from fastapi.testclient import TestClient
 
 from app.chat.service import ChatService
 from app.core.container import ApplicationContainer
 from app.core.settings import Settings
-from app.monitoring.service import MonitoringService
+from app.main import create_app
+from app.monitoring.service import MonitoringService, get_monitoring_service
 
 
 @pytest.mark.asyncio
@@ -37,3 +39,25 @@ def test_chat_service_uses_shared_monitoring_service() -> None:
     assert isinstance(chat_service, ChatService)
     assert chat_service.monitoring_service is shared_monitoring
     assert chat_service.orchestrator._monitoring_service is shared_monitoring
+
+
+def test_monitoring_snapshot_contains_only_events() -> None:
+    service = MonitoringService()
+
+    snapshot = service.snapshot()
+
+    assert "events" in snapshot
+    assert "stats" not in snapshot
+
+
+def test_monitoring_websocket_emits_initial_event() -> None:
+    app = create_app()
+
+    with TestClient(app) as client:
+        with client.websocket_connect("/api/v1/monitoring/ws") as websocket:
+            snapshot = websocket.receive_json()
+            initial_event = websocket.receive_json()
+
+            assert snapshot["type"] == "snapshot"
+            assert initial_event["type"] == "event"
+            assert initial_event["payload"]["title"] == "Monitoring stream connected"

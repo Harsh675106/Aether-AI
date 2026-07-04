@@ -10,7 +10,6 @@ from urllib.parse import urlparse
 import httpx
 from bs4 import BeautifulSoup
 
-from app.monitoring.service import MonitoringService
 
 
 @dataclass(frozen=True)
@@ -414,7 +413,6 @@ class WebSearchPipeline:
         context_builder: ContextBuilder | None = None,
         citation_builder: CitationBuilder | None = None,
         decision_engine: SearchDecisionEngine | None = None,
-        monitoring_service: MonitoringService | None = None,
     ) -> None:
         self._decision_engine = decision_engine or SearchDecisionEngine()
         self._search_client = search_client
@@ -422,7 +420,6 @@ class WebSearchPipeline:
         self._retrieval_service = retrieval_service or RetrievalService()
         self._context_builder = context_builder or ContextBuilder()
         self._citation_builder = citation_builder or CitationBuilder()
-        self._monitoring_service = monitoring_service
 
     async def run(self, query: str, *, limit: int = 5) -> tuple[str, list[dict[str, Any]]]:
         if not self._decision_engine.should_search(query):
@@ -435,28 +432,9 @@ class WebSearchPipeline:
         if self._search_client is None:
             return "", []
 
-        if self._monitoring_service is not None:
-            await self._monitoring_service.publish_event(
-                event_type="activity",
-                subsystem="search",
-                severity="info",
-                category="retrieval",
-                title="Searching web",
-                description=f"Searching the web for: {optimized_query}",
-            )
-
         try:
             raw_results = await self._search_client.search(optimized_query, limit=limit)
-        except Exception as exc:
-            if self._monitoring_service is not None:
-                await self._monitoring_service.publish_event(
-                    event_type="error",
-                    subsystem="search",
-                    severity="error",
-                    category="retrieval",
-                    title="Web search failed",
-                    description=str(exc),
-                )
+        except Exception:
             return "Recent web information could not be retrieved reliably; answering from internal knowledge.", []
 
         ranked_results = self._ranking_service.rank_results(raw_results, query)

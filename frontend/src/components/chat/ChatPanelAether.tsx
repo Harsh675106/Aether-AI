@@ -31,7 +31,7 @@ export function ChatPanelAether() {
           transition={{ duration: 0.7, ease: "easeOut" }}
           className="pointer-events-auto w-full flex-col overflow-hidden rounded-[2.5rem] bg-transparent text-white"
         >
-          <div className="relative flex max-h-[calc(100vh-22rem)] flex-col overflow-hidden rounded-[2.25rem] border border-white/10 bg-transparent px-4 py-3 shadow-[0_0_55px_rgba(56,189,248,0.08)]">
+          <div className="relative flex max-h-[calc(100vh-22rem)] flex-col overflow-hidden rounded-[2.25rem] border border-white/10 bg-[rgba(5,10,20,0.59)] px-4 py-3 shadow-[0_0_55px_rgba(56,189,248,0.08)]">
             <div className="pointer-events-none absolute left-0 top-0 h-1 w-full bg-gradient-to-r from-sky-400/80 via-white/70 to-transparent" />
             <div className="pointer-events-none absolute left-0 bottom-0 h-1 w-full bg-gradient-to-r from-transparent via-white/50 to-sky-400/70" />
             <div className="pointer-events-none absolute left-0 top-0 h-full w-full rounded-[2.25rem] border border-white/5 opacity-50" />
@@ -94,7 +94,7 @@ export function ChatPanelAether() {
           transition={{ duration: 0.7, ease: "easeOut" }}
           className="pointer-events-auto w-full overflow-hidden rounded-[2rem] border border-white/10 bg-transparent px-4 py-3 text-sm text-slate-100 shadow-[0_0_40px_rgba(56,189,248,0.08)]"
         >
-          <div className="relative overflow-hidden rounded-[1.75rem] border border-white/10 bg-transparent px-4 py-3">
+          <div className="relative overflow-hidden rounded-[1.75rem] border border-white/10 bg-[rgba(5,10,20,0.59)] px-4 py-3">
             <div className="pointer-events-none absolute -left-4 top-2 h-14 w-14 rounded-full bg-sky-400/10 blur-3xl" />
             <div className="pointer-events-none absolute right-8 bottom-6 h-0.5 w-20 rounded-full bg-white/40 animate-[pulse_2.5s_ease-in-out_infinite]" />
             <div className="pointer-events-none absolute left-4 bottom-12 h-0.5 w-24 rounded-full bg-sky-300/30 animate-[ping_2s_ease-in-out_infinite]" />

@@ -1,3 +1,10 @@
+@import "./variables.css";
+@import "./typography.css";
+@import "./animations.css";
+@import "./effects.css";
+@import "./glass.css";
+@import "./scrollbar.css";
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -102,4 +109,29 @@
 
 .animate-spin-reverse {
     animation: spin-reverse linear infinite;
+}
+
+@keyframes scanlines {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(8px);
+  }
+}
+
+@keyframes textGlow {
+  0%,
+  100% {
+    opacity: 1;
+    text-shadow: 0 0 4px rgba(94, 235, 255, 0.3);
+  }
+  50% {
+    opacity: 0.9;
+    text-shadow: 0 0 12px rgba(94, 235, 255, 0.7);
+  }
+}
+
+.animate-textGlow {
+  animation: textGlow 2.5s ease-in-out infinite;
 }

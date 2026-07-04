@@ -64,8 +64,8 @@ class ConversationOrchestrator:
         self._web_search_client = web_search_client
         self._web_content_extractor = web_content_extractor or WebContentExtractor()
         self._search_decision_engine = search_decision_engine or SearchDecisionEngine()
-        self._monitoring_service = monitoring_service
         self._web_search_pipeline = web_search_pipeline or WebSearchPipeline(search_client=self._web_search_client)
+        self._monitoring_service = monitoring_service
 
     def decide(self, messages: list[dict[str, str]]) -> OrchestrationDecision:
         """Decide which augmentations to use based on the user message."""
@@ -117,6 +117,18 @@ class ConversationOrchestrator:
         top_p: float | None = None,
     ) -> AsyncIterator[str]:
         """Stream the response with optional augmentations."""
+        if self._monitoring_service is not None:
+            await self._monitoring_service.publish_event(
+                event_type="chat.request",
+                subsystem="backend",
+                severity="info",
+                category="conversation",
+                title="Chat request received",
+                description="A new conversation request is being processed.",
+                correlation_id=conversation_id,
+                details={"message_count": len(messages)},
+            )
+
         # Make the orchestration decision
         decision = self.decide(messages)
         
@@ -141,15 +153,6 @@ class ConversationOrchestrator:
         citations: list[dict[str, Any]] = []
         if decision.use_web_search and self._web_search_pipeline and messages:
             user_query = messages[-1]["content"]
-            if self._monitoring_service is not None:
-                await self._monitoring_service.publish_event(
-                    event_type="activity",
-                    subsystem="search",
-                    severity="info",
-                    category="retrieval",
-                    title="Searching web",
-                    description="The assistant started a web search for the latest information.",
-                )
             web_context, citations = await self._perform_web_search(user_query, limit=5)
 
         prompt = self._prompt_builder.build(
@@ -181,3 +184,15 @@ class ConversationOrchestrator:
             self._history_store.ensure_conversation(conversation_id, title="conversation")
             self._history_store.append_message(conversation_id, "user", messages[-1]["content"] if messages else "")
             self._history_store.append_message(conversation_id, "assistant", "".join(response_parts))
+
+        if self._monitoring_service is not None:
+            await self._monitoring_service.publish_event(
+                event_type="chat.response",
+                subsystem="backend",
+                severity="success",
+                category="conversation",
+                title="Chat response ready",
+                description="The assistant response has been generated.",
+                correlation_id=conversation_id,
+                details={"token_count": len("".join(response_parts))},
+            )

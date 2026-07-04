@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import asyncio
-import json
+import logging
 import time
 import uuid
 from collections import deque
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -20,7 +20,7 @@ class MonitoringEvent:
     title: str
     description: str
     status: str = "running"
-    timestamp: float = field(default_factory=time.time)
+    timestamp: float = field(default_factory=lambda: time.time() * 1000)
     correlation_id: str | None = None
     details: dict[str, Any] | None = None
     duration_ms: int | None = None
@@ -48,12 +48,6 @@ class MonitoringService:
     def __init__(self) -> None:
         self._subscribers: set[asyncio.Queue[dict[str, Any]]] = set()
         self._events: deque[dict[str, Any]] = deque(maxlen=200)
-        self._stats: dict[str, Any] = {
-            "events": 0,
-            "errors": 0,
-            "warnings": 0,
-            "successes": 0,
-        }
         self._lock = asyncio.Lock()
 
     async def publish_event(
@@ -85,13 +79,6 @@ class MonitoringService:
         )
         payload = event.to_dict()
         self._events.append(payload)
-        self._stats["events"] += 1
-        if severity.lower() in {"error", "critical"}:
-            self._stats["errors"] += 1
-        elif severity.lower() == "warning":
-            self._stats["warnings"] += 1
-        elif severity.lower() in {"success", "info"}:
-            self._stats["successes"] += 1
 
         async with self._lock:
             dead: list[asyncio.Queue[dict[str, Any]]] = []
@@ -103,6 +90,26 @@ class MonitoringService:
             for queue in dead:
                 self._subscribers.discard(queue)
         return payload
+
+    async def publish_log(
+        self,
+        *,
+        message: str,
+        subsystem: str = "backend",
+        severity: str = "info",
+        category: str = "terminal",
+        title: str | None = None,
+        details: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        return await self.publish_event(
+            event_type="log",
+            subsystem=subsystem,
+            severity=severity,
+            category=category,
+            title=title or "Backend activity",
+            description=message,
+            details=details,
+        )
 
     def subscribe(self) -> AsyncIterator[dict[str, Any]]:
         queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=100)
@@ -118,5 +125,46 @@ class MonitoringService:
     def snapshot(self) -> dict[str, Any]:
         return {
             "events": list(self._events)[-50:],
-            "stats": dict(self._stats),
         }
+
+
+_monitoring_service_instance: MonitoringService | None = None
+
+
+def get_monitoring_service() -> MonitoringService:
+    global _monitoring_service_instance
+    if _monitoring_service_instance is None:
+        _monitoring_service_instance = MonitoringService()
+    return _monitoring_service_instance
+
+
+class MonitoringLogHandler(logging.Handler):
+    def __init__(self, service: MonitoringService) -> None:
+        super().__init__()
+        self._service = service
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            message = self.format(record)
+            severity = {
+                logging.DEBUG: "debug",
+                logging.INFO: "info",
+                logging.WARNING: "warning",
+                logging.ERROR: "error",
+                logging.CRITICAL: "critical",
+            }.get(record.levelno, "info")
+            coro = self._service.publish_log(
+                message=message,
+                subsystem="backend",
+                severity=severity,
+                category="terminal",
+                title=record.name or "backend",
+            )
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                asyncio.run(coro)
+            else:
+                loop.create_task(coro)
+        except Exception:
+            pass
