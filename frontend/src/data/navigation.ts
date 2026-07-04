@@ -1,0 +1,41 @@
+import {
+  Blocks,
+  Bot,
+  Brain,
+  Code2,
+  Database,
+  FileText,
+  Globe2,
+  Home,
+  Layers3,
+  ListTree,
+  MemoryStick,
+  Plug,
+  ScrollText,
+  Settings,
+  SquareTerminal,
+  Workflow,
+  Wrench,
+} from "lucide-react";
+import type { NavigationItem } from "@/types/dashboard";
+
+export const navigationItems: NavigationItem[] = [
+  { id: "home", label: "Home", href: "/", icon: Home },
+  { id: "chat", label: "Chat", href: "/chat", icon: Bot },
+  { id: "memory", label: "Memory", href: "/memory", icon: Brain },
+  { id: "knowledge", label: "Knowledge", href: "/knowledge", icon: Database },
+  { id: "tools", label: "Tools", href: "/tools", icon: Wrench },
+  { id: "automation", label: "Automation", href: "/automation", icon: Blocks },
+  { id: "workflows", label: "Workflows", href: "/workflows", icon: Workflow },
+  { id: "files", label: "Files", href: "/files", icon: FileText },
+  { id: "terminal", label: "Terminal", href: "/terminal", icon: SquareTerminal },
+  { id: "vscode", label: "VS Code", href: "/vscode", icon: Code2 },
+  { id: "browser", label: "Browser", href: "/browser", icon: Globe2 },
+  { id: "plugins", label: "Plugins", href: "/plugins", icon: Plug },
+  { id: "settings", label: "Settings", href: "/settings", icon: Settings },
+  { id: "logs", label: "Logs", href: "/logs", icon: ScrollText },
+  { id: "future", label: "Future Modules", href: "/future", icon: Layers3, future: true },
+  { id: "agents", label: "Multi-Agent", href: "/agents", icon: ListTree, future: true },
+  { id: "local-models", label: "Local Models", href: "/local-models", icon: MemoryStick, future: true },
+];
+

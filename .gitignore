@@ -1,0 +1,42 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Builds
+dist/
+build/
+frontend/dist/
+frontend/src-tauri/target/
+
+# Environment
+.env
+.env.*
+.env.example
+frontend/.env.example
+backend/.env.example
+
+# Logs and runtime
+logs/*
+!logs/README.md
+*.log
+
+# IDE
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+
+# OS
+.DS_Store
+Thumbs.db
+

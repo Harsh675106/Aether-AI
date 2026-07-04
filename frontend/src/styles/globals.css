@@ -1,0 +1,105 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 218 37% 6%;
+    --foreground: 190 30% 96%;
+    --card: 220 30% 9%;
+    --card-foreground: 190 30% 96%;
+    --primary: 174 72% 56%;
+    --primary-foreground: 214 40% 7%;
+    --secondary: 223 24% 18%;
+    --secondary-foreground: 190 30% 96%;
+    --muted: 220 20% 16%;
+    --muted-foreground: 207 13% 70%;
+    --accent: 322 68% 61%;
+    --accent-foreground: 220 35% 7%;
+    --border: 211 24% 20%;
+    --input: 211 24% 20%;
+    --ring: 174 72% 56%;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  html,
+  body,
+  #root {
+    min-height: 100%;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings:
+      "rlig" 1,
+      "calt" 1;
+  }
+}
+
+@layer utilities {
+  .glass-panel {
+    @apply border border-white/10 bg-white/[0.055] shadow-2xl backdrop-blur-2xl;
+  }
+
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  .scrollbar-custom {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(56, 189, 248, 0.6) transparent;
+  }
+
+  .scrollbar-custom::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  .scrollbar-custom::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .scrollbar-custom::-webkit-scrollbar-thumb {
+    background: linear-gradient(135deg, rgba(56, 189, 248, 0.6), rgba(148, 163, 247, 0.6));
+    border-radius: 4px;
+    transition: all 0.3s ease;
+  }
+
+  .scrollbar-custom::-webkit-scrollbar-thumb:hover {
+    background: linear-gradient(135deg, rgba(56, 189, 248, 0.9), rgba(148, 163, 247, 0.9));
+    box-shadow: 0 0 10px rgba(56, 189, 248, 0.5);
+  }
+}
+
+@keyframes loading {
+    0% {
+        transform: scaleX(0);
+        opacity: .4;
+    }
+
+    50% {
+        transform: scaleX(1);
+        opacity: 1;
+    }
+
+    100% {
+        transform: scaleX(0);
+        opacity: .4;
+    }
+}
+
+@keyframes spin-reverse {
+    from {
+        transform: rotate(360deg);
+    }
+
+    to {
+        transform: rotate(0deg);
+    }
+}
+
+.animate-spin-reverse {
+    animation: spin-reverse linear infinite;
+}
