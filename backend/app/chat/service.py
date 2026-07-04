@@ -31,10 +31,11 @@ class ChatService:
         history_store: ConversationHistoryStore | None = None,
         memory_manager: PlaceholderMemoryManager | None = None,
         web_search_client: SearXNGClient | None = None,
+        monitoring_service: MonitoringService | None = None,
     ) -> "ChatService":
         provider = OllamaProvider(settings)
         client = web_search_client or SearXNGClient(settings.searxng_base_url)
-        monitoring_service = MonitoringService()
+        monitoring_service = monitoring_service or MonitoringService()
         pipeline = WebSearchPipeline(search_client=client, monitoring_service=monitoring_service)
         orchestrator = ConversationOrchestrator(
             llm_provider=provider,

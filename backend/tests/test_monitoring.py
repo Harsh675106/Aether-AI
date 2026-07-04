@@ -2,6 +2,9 @@ import asyncio
 
 import pytest
 
+from app.chat.service import ChatService
+from app.core.container import ApplicationContainer
+from app.core.settings import Settings
 from app.monitoring.service import MonitoringService
 
 
@@ -23,3 +26,14 @@ async def test_monitoring_service_emits_live_events() -> None:
 
     assert event["title"] == "Request received"
     assert event["subsystem"] == "backend"
+
+
+def test_chat_service_uses_shared_monitoring_service() -> None:
+    container = ApplicationContainer(settings=Settings(environment="testing"))
+    shared_monitoring = container.monitoring_service()
+
+    chat_service = container.chat_service()
+
+    assert isinstance(chat_service, ChatService)
+    assert chat_service.monitoring_service is shared_monitoring
+    assert chat_service.orchestrator._monitoring_service is shared_monitoring

@@ -5,6 +5,7 @@ from app.chat.service import ChatService
 from app.core.settings import Settings
 from app.memory.chroma_manager import ChromaMemoryManager
 from app.memory.history_store import ConversationHistoryStore
+from app.monitoring.service import MonitoringService
 from app.web.search import SearXNGClient, WebContentExtractor
 from app.plugins.manager import PlaceholderPluginManager
 from app.rag.engine import PlaceholderRagEngine
@@ -30,6 +31,7 @@ class ApplicationContainer:
             history_store=self.history_store(),
             memory_manager=self.memory_manager(),
             web_search_client=self.web_search_client(),
+            monitoring_service=self.monitoring_service(),
         )
 
     def planner(self) -> PlaceholderPlanner:
@@ -58,7 +60,7 @@ class ApplicationContainer:
 
     def monitoring_service(self) -> MonitoringService:
         if not hasattr(self, "_monitoring_service"):
-            self._monitoring_service = MonitoringService()
+            object.__setattr__(self, "_monitoring_service", MonitoringService())
         return self._monitoring_service
 
     def plugin_manager(self) -> PlaceholderPluginManager:
