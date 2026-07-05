@@ -1,8 +1,4 @@
-# 🚀 Aether AI - Quick Start Guide
-
-Welcome! Follow these steps to get Aether AI running on your machine.
-
----
+#
 
 ## <span style="color: #FF6B6B">📋 Step 1: Initial Setup & Dependencies</span>
 
@@ -18,25 +14,18 @@ python -m pip install -e ".[dev]"
 npm install --prefix frontend
 ```
 
-> ✅ This sets up Python venv, installs backend dependencies, and frontend packages.
-
----
 
 ## <span style="color: #4ECDC4">🧠 Step 2: Pull the AI Model</span>
 
-Download the default Qwen 2.5 7B instruction-tuned model:
 
 ```powershell
 ollama pull qwen2.5:7b-instruct
 ```
 
-> ⏳ This may take a few minutes depending on your internet connection (≈5 GB download).
-
----
 
 ## <span style="color: #45B7D1">⚙️ Step 3: Start Ollama Server</span>
 
-Open a **new terminal** and run the Ollama server:
+Open a **new terminal** and run the Ollama server (can be run from any directory):
 
 ```powershell
 # Kill any existing Ollama processes
@@ -49,13 +38,30 @@ Start-Sleep -Seconds 2
 ollama serve
 ```
 
-> 🔑 Keep this terminal open—Ollama must be running for the backend to work.
-> 
-> ✓ You'll see: `Listening on 127.0.0.1:11434`
+## <span style="color: #95E1D3">🔍 Step 4: Start the SearXNG Web Search Server (Optional)</span>
+
+Open a **new terminal** and start the self-hosted SearXNG instance from the repo's Docker compose setup:
+
+```powershell
+cd AetherAI/docker/searxng
+docker compose up -d
+```
+
+To stop it later:
+
+```powershell
+cd AetherAI/docker/searxng
+docker compose down
+```
+
+> This starts a containerized SearXNG instance on port 8080 with the local configuration and secret key already set.
+>
+> ✓ Verify it by opening `http://127.0.0.1:8080` in your browser.
+
 
 ---
 
-## <span style="color: #95E1D3">🖥️ Step 4: Start the Backend Server</span>
+## <span style="color: #95E1D3">🖥️ Step 5: Start the Backend Server</span>
 
 Open a **third terminal**, navigate to the backend, and start the API:
 
@@ -71,7 +77,7 @@ uvicorn app.main:create_app --factory --host 127.0.0.1 --port 8001
 
 ---
 
-## <span style="color: #FFE66D">🎨 Step 5: Start the Frontend Dev Server</span>
+## <span style="color: #FFE66D">🎨 Step 6: Start the Frontend Dev Server</span>
 
 Open a **fourth terminal** and start the frontend:
 
@@ -103,6 +109,7 @@ npm run tauri:dev
 
 All systems running:
 - ✅ Ollama server (port 11434)
+- ✅ SearXNG web search server (port 8080, optional)
 - ✅ FastAPI backend (port 8001)
 - ✅ Frontend dev server (port 5173)
 

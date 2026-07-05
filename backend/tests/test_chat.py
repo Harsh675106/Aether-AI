@@ -31,6 +31,32 @@ class FakeMemoryManager:
         return [{"content": "User likes Python", "metadata": {}}]
 
 
+class FallbackProvider(FakeProvider):
+    def __init__(self) -> None:
+        super().__init__()
+        self.stream_calls = 0
+
+    async def complete(self, prompt: str, *, metadata: object | None = None) -> str:
+        self.prompts.append(prompt)
+        return '{"confidence": 28, "needs_web_search": true, "reason": "uncertain answer"}'
+
+    async def stream_complete(self, prompt: str, *, metadata: object | None = None):
+        self.prompts.append(prompt)
+        self.stream_calls += 1
+        if self.stream_calls == 1:
+            yield "I don't know."
+            return
+        yield "The latest release was announced in 2026."
+
+
+class StubWebSearchPipeline:
+    async def run(self, query: str, *, limit: int = 5) -> tuple[str, list[dict[str, object]]]:
+        return (
+            "Search context: the latest release was announced in 2026.",
+            [{"title": "Release notes", "url": "https://example.com", "site_name": "Example"}],
+        )
+
+
 def test_chat_streaming_endpoint_returns_sse_events() -> None:
     client = TestClient(create_app())
     response = client.post(
@@ -48,6 +74,13 @@ def test_chat_streaming_endpoint_returns_sse_events() -> None:
     body = response.text.lower()
     assert "data:" in body
     assert "aether" in body or "hello" in body
+
+
+def test_default_cors_origins_include_local_frontend_hosts() -> None:
+    settings = Settings()
+
+    assert "http://localhost:5173" in settings.cors_origins
+    assert "http://127.0.0.1:5173" in settings.cors_origins
 
 
 @pytest.mark.asyncio
@@ -74,3 +107,22 @@ async def test_orchestrator_uses_history_and_memory(tmp_path: Path) -> None:
     prompt = provider.prompts[-1]
     assert "Earlier question" in prompt
     assert "User likes Python" in prompt
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_retries_with_web_context_when_confidence_is_low() -> None:
+    provider = FallbackProvider()
+    orchestrator = ConversationOrchestrator(
+        llm_provider=provider,
+        settings=Settings(),
+        memory_manager=FakeMemoryManager(),
+        web_search_pipeline=StubWebSearchPipeline(),
+    )
+
+    response_parts: list[str] = []
+    async for chunk in orchestrator.stream_response([{"role": "user", "content": "When was the latest release announced?"}]):
+        response_parts.append(chunk)
+
+    assert provider.stream_calls == 2
+    assert any("2026" in part for part in response_parts)
+    assert any("## Sources" in part for part in response_parts)

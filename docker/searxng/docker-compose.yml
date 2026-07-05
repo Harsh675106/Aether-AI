@@ -1,0 +1,15 @@
+services:
+  searxng:
+    image: searxng/searxng:latest
+    container_name: searxng
+    ports:
+      - "8080:8080"
+    environment:
+      BASE_URL: http://127.0.0.1:8080/
+      INSTANCE_NAME: local
+      SEARXNG_SECRET: aether-local-searxng-secret-2026
+    volumes:
+      - ./searxng:/etc/searxng:rw
+    command: >-
+      sh -c "mkdir -p /etc/searxng && sed -i 's|ultrasecretkey|${SEARXNG_SECRET:-aether-local-searxng-secret-2026}|g' /etc/searxng/settings.yml || true && /usr/local/bin/searxng-start"
+    restart: unless-stopped

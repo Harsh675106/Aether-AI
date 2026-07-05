@@ -24,7 +24,8 @@ export function ChatPanelAether() {
   return (
     <>
       <AetherLogo />
-      <motion.div className="pointer-events-none absolute left-4 top-1/2 z-30 hidden -translate-y-1/2 flex w-[min(23rem,calc(100%-2rem))] flex-col gap-3 md:flex lg:left-6 lg:w-[28rem]">
+      <motion.div className="pointer-events-none absolute left-4 top-1/2  mt-4 z-30 hidden -translate-y-1/2 flex w-[min(44rem,calc(100%-2rem))]
+flex-col gap-3 md:flex lg:left-6 lg:w-[52rem] ">
         <motion.aside
           initial={{ opacity: 0, x: -24 }}
           animate={{ opacity: 1, x: 0 }}
@@ -57,7 +58,7 @@ export function ChatPanelAether() {
               </button>
             </div>
 
-            <div className="relative z-10 mt-4 flex-1 overflow-hidden">
+            <div className="relative z-10  flex-1 overflow-hidden">
               <div className="mt-3 h-96 overflow-y-auto rounded-[1.75rem] border border-white/10 bg-black/10 p-3 scrollbar-custom">
                 {messages.length === 0 && (
                   <div className="rounded-[1.25rem] border border-white/10 bg-white/10 p-3 text-sm text-slate-100/80">
@@ -106,7 +107,7 @@ export function ChatPanelAether() {
               onSubmit={handleSubmit}
               className="relative z-10 flex flex-col gap-2 sm:flex-row sm:items-center"
             >
-              <div className="flex-1 rounded-[1.5rem] border border-white/10 bg-transparent px-4 py-3">
+              <div className="flex-1 rounded-[1.5rem] border border-white/10 bg-transparent px-4 ">
                 <p className="text-[10px] uppercase tracking-[0.3em] text-sky-200/70">Input</p>
                 <input
                   type="text"

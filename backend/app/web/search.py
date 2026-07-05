@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import math
 import re
-from collections.abc import Sequence
+import time
+from collections import Counter
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlparse
@@ -31,6 +34,223 @@ class RetrievedDocument:
     published_date: str | None = None
 
 
+@dataclass(frozen=True)
+class ConfidenceAnalysis:
+    confidence: int
+    needs_web_search: bool
+    reason: str
+    semantic_score: int = 0
+    freshness_score: int = 0
+    entity_coverage: int = 0
+    completeness_score: int = 0
+    uncertainty_score: int = 0
+    self_evaluation: int | None = None
+
+
+class ResponseConfidenceAnalyzer:
+    """Score whether an LLM answer is reliable and should trigger web fallback."""
+
+    UNCERTAINTY_PHRASES = (
+        "i don't know",
+        "i'm not sure",
+        "i am not sure",
+        "cannot determine",
+        "probably",
+        "maybe",
+        "possibly",
+        "likely",
+        "uncertain",
+        "i think",
+        "might be",
+        "appears to",
+        "not sure",
+        "unknown",
+    )
+    REFUSAL_PHRASES = ("cannot answer", "can't answer", "cannot provide", "can't provide")
+    KNOWLEDGE_CUTOFF_INDICATORS = (
+        "my training data",
+        "my knowledge cutoff",
+        "as an ai model",
+        "i do not have current information",
+        "i don't have current information",
+    )
+    FRESHNESS_TERMS = (
+        "today",
+        "latest",
+        "current",
+        "this week",
+        "this month",
+        "breaking",
+        "recent",
+        "live",
+        "news",
+        "version",
+        "release",
+        "price",
+        "weather",
+        "sports",
+        "stock",
+        "crypto",
+        "bitcoin",
+        "trade",
+        "market",
+        "forecast",
+        "2024",
+        "2025",
+        "2026",
+    )
+    VAGUE_TERMS = ("generally", "usually", "often", "may", "typically", "might")
+
+    def analyze(
+        self,
+        query: str,
+        answer: str,
+        *,
+        self_evaluation: Mapping[str, Any] | None = None,
+    ) -> ConfidenceAnalysis:
+        normalized_query = self._normalize(query)
+        normalized_answer = self._normalize(answer)
+
+        if not normalized_answer:
+            return ConfidenceAnalysis(confidence=0, needs_web_search=True, reason="empty response")
+
+        semantic_score = self._semantic_similarity(normalized_query, normalized_answer)
+        freshness_score = self._freshness_score(normalized_query)
+        entity_coverage = self._entity_coverage(normalized_query, normalized_answer)
+        completeness_score = self._completeness_score(normalized_query, normalized_answer)
+        uncertainty_score = self._uncertainty_score(normalized_answer)
+        hallucination_score = self._hallucination_score(normalized_query, normalized_answer)
+        self_confidence = self._coerce_self_evaluation(self_evaluation)
+
+        weighted_confidence = (
+            (self_confidence * 0.4)
+            + (semantic_score * 0.2)
+            + (uncertainty_score * 0.1)
+            + (completeness_score * 0.1)
+            + (entity_coverage * 0.1)
+            + (freshness_score * 0.1)
+        )
+        confidence = round(max(0, min(100, weighted_confidence)))
+
+        needs_web_search = False
+        reason_parts: list[str] = []
+        if self_evaluation is not None and bool(self_evaluation.get("needs_web_search")):
+            needs_web_search = True
+            reason_parts.append("self-evaluation requested web search")
+        if confidence < 40:
+            needs_web_search = True
+            reason_parts.append("confidence below threshold")
+        if confidence < 60 and freshness_score >= 70:
+            needs_web_search = True
+            reason_parts.append("time-sensitive query")
+        if uncertainty_score < 60:
+            needs_web_search = True
+            reason_parts.append("uncertain wording")
+        if self._is_factual_query(normalized_query) and hallucination_score < 60:
+            needs_web_search = True
+            reason_parts.append("vague factual answer")
+        if not reason_parts:
+            reason_parts.append("answer appears sufficiently grounded")
+
+        return ConfidenceAnalysis(
+            confidence=confidence,
+            needs_web_search=needs_web_search,
+            reason="; ".join(reason_parts),
+            semantic_score=int(semantic_score),
+            freshness_score=int(freshness_score),
+            entity_coverage=int(entity_coverage),
+            completeness_score=int(completeness_score),
+            uncertainty_score=int(uncertainty_score),
+            self_evaluation=self_confidence,
+        )
+
+    def _uncertainty_score(self, answer: str) -> int:
+        lowered = answer.lower()
+        uncertainty_hits = sum(1 for phrase in self.UNCERTAINTY_PHRASES if phrase in lowered)
+        refusal_hits = sum(1 for phrase in self.REFUSAL_PHRASES if phrase in lowered)
+        cutoff_hits = sum(1 for phrase in self.KNOWLEDGE_CUTOFF_INDICATORS if phrase in lowered)
+        penalty = uncertainty_hits * 12 + refusal_hits * 20 + cutoff_hits * 20
+        if len(answer.split()) <= 2:
+            penalty += 20
+        score = max(0, 100 - penalty)
+        return min(100, score)
+
+    def _freshness_score(self, query: str) -> int:
+        lowered = query.lower()
+        if any(term in lowered for term in self.FRESHNESS_TERMS):
+            return 100
+        return 0
+
+    def _entity_coverage(self, query: str, answer: str) -> int:
+        entities = self._extract_entities(query)
+        if not entities:
+            return 100
+        lowered_answer = answer.lower()
+        matches = [entity for entity in entities if entity.lower() in lowered_answer]
+        if not matches:
+            return 25
+        return 100
+
+    def _completeness_score(self, query: str, answer: str) -> int:
+        lowered_query = query.lower()
+        lowered_answer = answer.lower()
+        if any(term in lowered_query for term in ("when", "what year", "released", "release", "latest", "today", "current")):
+            if re.search(r"\b(19|20)\d{2}\b", answer) or re.search(r"\b(january|february|march|april|may|june|july|august|september|october|november|december)\b", lowered_answer):
+                return 100
+            return 35
+        if len(answer.split()) >= 8:
+            return 80
+        return 60
+
+    def _hallucination_score(self, query: str, answer: str) -> int:
+        if not self._is_factual_query(query):
+            return 100
+        lowered_answer = answer.lower()
+        if any(term in lowered_answer for term in self.VAGUE_TERMS):
+            return 45
+        return 100
+
+    def _semantic_similarity(self, query: str, answer: str) -> int:
+        query_tokens = self._tokenize(query)
+        answer_tokens = self._tokenize(answer)
+        if not query_tokens or not answer_tokens:
+            return 0
+        query_counter = Counter(query_tokens)
+        answer_counter = Counter(answer_tokens)
+        overlap = sum(min(query_counter[token], answer_counter[token]) for token in set(query_counter) & set(answer_counter))
+        denominator = math.sqrt(sum(count * count for count in query_counter.values())) * math.sqrt(sum(count * count for count in answer_counter.values()))
+        if denominator == 0:
+            return 0
+        return round((overlap / denominator) * 100)
+
+    def _coerce_self_evaluation(self, self_evaluation: Mapping[str, Any] | None) -> int:
+        if not self_evaluation:
+            return 70
+        raw_confidence = self_evaluation.get("confidence")
+        if isinstance(raw_confidence, (int, float)):
+            return int(round(float(raw_confidence)))
+        return 70
+
+    def _extract_entities(self, query: str) -> list[str]:
+        tokens = re.findall(r"[A-Za-z0-9.]+", query)
+        entities: list[str] = []
+        for token in tokens:
+            if token.isupper() or token[0].isupper() or any(char.isdigit() for char in token):
+                entities.append(token)
+        return entities
+
+    def _is_factual_query(self, query: str) -> bool:
+        lowered = query.lower()
+        factual_markers = ("when", "what year", "who", "where", "release", "price", "latest", "current", "today")
+        return any(marker in lowered for marker in factual_markers)
+
+    def _normalize(self, text: str) -> str:
+        return re.sub(r"\s+", " ", text.strip()).lower()
+
+    def _tokenize(self, text: str) -> list[str]:
+        return [token for token in re.findall(r"[a-z0-9]+", text.lower()) if token]
+
+
 class SearchDecisionEngine:
     """Decide when a user query should trigger a web search."""
 
@@ -40,6 +260,8 @@ class SearchDecisionEngine:
         "exchange", "release", "version", "update", "documentation", "docs", "api",
         "framework", "library", "company", "product", "government", "technology",
         "roadmap", "changelog", "conference", "event", "policy", "regulation",
+        "next", "upcoming", "match", "fixture", "schedule", "series", "result", "score",
+        "t20", "ipl", "world cup", "premier league", "nba", "epl",
     }
     NEGATIVE_KEYWORDS = {
         "explain", "why", "how", "describe", "summarize", "write", "brainstorm",
@@ -420,8 +642,17 @@ class WebSearchPipeline:
         self._retrieval_service = retrieval_service or RetrievalService()
         self._context_builder = context_builder or ContextBuilder()
         self._citation_builder = citation_builder or CitationBuilder()
+        self._cache: dict[str, tuple[float, str, list[dict[str, Any]]]] = {}
 
     async def run(self, query: str, *, limit: int = 5) -> tuple[str, list[dict[str, Any]]]:
+        normalized_query = self._normalize_query(query)
+        if normalized_query:
+            cached = self._cache.get(normalized_query)
+            if cached is not None:
+                cached_at, context, citations = cached
+                if time.monotonic() - cached_at <= 15 * 60:
+                    return context, citations
+
         if not self._decision_engine.should_search(query):
             return "", []
 
@@ -439,17 +670,49 @@ class WebSearchPipeline:
 
         ranked_results = self._ranking_service.rank_results(raw_results, query)
         documents = await self._retrieval_service.retrieve(ranked_results[:limit])
-        if not documents:
-            return "Recent web information could not be retrieved reliably; answering from internal knowledge.", []
+        if documents:
+            context = self._context_builder.build_context(documents, query)
+            citations = [
+                {
+                    "title": document.title,
+                    "url": document.url,
+                    "site_name": document.site_name,
+                    "published_date": document.published_date,
+                }
+                for document in documents
+            ]
+            if normalized_query:
+                self._cache[normalized_query] = (time.monotonic(), context, citations)
+            return context, citations
 
-        context = self._context_builder.build_context(documents, query)
-        citations = [
+        fallback_context = self._context_builder.build_context(
+            [
+                RetrievedDocument(
+                    title=result.title,
+                    url=result.url,
+                    content=result.content or result.title,
+                    site_name=result.site_name,
+                    published_date=result.published_date,
+                )
+                for result in ranked_results[:limit]
+            ],
+            query,
+        )
+        fallback_citations = [
             {
-                "title": document.title,
-                "url": document.url,
-                "site_name": document.site_name,
-                "published_date": document.published_date,
+                "title": result.title,
+                "url": result.url,
+                "site_name": result.site_name,
+                "published_date": result.published_date,
             }
-            for document in documents
+            for result in ranked_results[:limit]
         ]
+        if normalized_query:
+            self._cache[normalized_query] = (time.monotonic(), fallback_context, fallback_citations)
+        return fallback_context, fallback_citations
+        if normalized_query:
+            self._cache[normalized_query] = (time.monotonic(), context, citations)
         return context, citations
+
+    def _normalize_query(self, query: str) -> str:
+        return re.sub(r"\s+", " ", query.strip().lower())

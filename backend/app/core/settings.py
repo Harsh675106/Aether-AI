@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     log_level: str = Field(default="INFO", alias="AETHER_LOG_LEVEL")
     api_host: str = Field(default="0.0.0.0", alias="AETHER_API_HOST")
     api_port: int = Field(default=8000, alias="AETHER_API_PORT")
-    cors_origins_raw: str = Field(default="http://localhost:5173", alias="AETHER_CORS_ORIGINS")
+    cors_origins_raw: str = Field(default="http://localhost:5173,http://127.0.0.1:5173", alias="AETHER_CORS_ORIGINS")
     secret_key: SecretStr = Field(default=SecretStr("change-me"), alias="AETHER_SECRET_KEY")
     postgres_dsn: str = Field(
         default="postgresql+asyncpg://aether:aether@localhost:5432/aether",

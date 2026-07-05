@@ -12,7 +12,7 @@ export function MonitorPanel() {
       initial={{ opacity: 0, y: 24 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.8, ease: "easeOut" }}
-      className="monitor-panel absolute right-6 top-36 bottom-28 z-30 w-[clamp(55%,62rem,70%)] overflow-hidden rounded-[3rem] border border-white/10 bg-[rgba(5,10,20,0.59)] shadow-[0_20px_70px_rgba(8,15,30,0.14)]"
+      className="monitor-panel absolute right-6 top-36 bottom-28 z-30 w-[clamp(35%,40rem,45%)] overflow-hidden rounded-[3rem] border border-white/10 bg-[rgba(5,10,20,0.59)] shadow-[0_20px_70px_rgba(8,15,30,0.14)]"
     >
       <div className="pointer-events-none absolute inset-0 rounded-[3rem] bg-[radial-gradient(circle_at_top,_rgba(56,189,248,0.03),transparent_45%)]" />
       <div className="pointer-events-none absolute inset-0 rounded-[3rem] border border-white/10 opacity-85 shadow-[0_0_12px_rgba(255,255,255,0.05),0_0_18px_rgba(56,189,248,0.06)]" />

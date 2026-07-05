@@ -14,6 +14,8 @@ from app.memory.manager import PlaceholderMemoryManager
 from app.monitoring.service import MonitoringService
 from app.web.search import (
     CitationBuilder,
+    ConfidenceAnalysis,
+    ResponseConfidenceAnalyzer,
     SearchDecisionEngine,
     SearXNGClient,
     WebContentExtractor,
@@ -38,8 +40,9 @@ class ConversationOrchestrator:
         "today", "tomorrow", "now", "current", "latest", "recent", "breaking",
         "live", "this week", "this month", "schedule", "date", "time", "next",
         "upcoming", "weather", "news", "score", "result", "match", "game",
-        "cricket", "football", "basketball", "tennis", "election", "stock",
-        "price", "bitcoin", "crypto", "price", "rate", "exchange", "today's",
+        "fixture", "series", "t20", "ipl", "world cup", "premier league", "nba",
+        "epl", "cricket", "football", "basketball", "tennis", "election", "stock",
+        "price", "bitcoin", "crypto", "rate", "exchange", "today's",
         "2024", "2025", "2026", "event", "conference", "release", "launch"
     }
 
@@ -65,6 +68,7 @@ class ConversationOrchestrator:
         self._web_content_extractor = web_content_extractor or WebContentExtractor()
         self._search_decision_engine = search_decision_engine or SearchDecisionEngine()
         self._web_search_pipeline = web_search_pipeline or WebSearchPipeline(search_client=self._web_search_client)
+        self._confidence_analyzer = ResponseConfidenceAnalyzer()
         self._monitoring_service = monitoring_service
 
     def decide(self, messages: list[dict[str, str]]) -> OrchestrationDecision:
@@ -101,6 +105,54 @@ class ConversationOrchestrator:
         except Exception as e:
             logger.error(f"web_search_failed: {e}")
             return "", []
+
+    async def _evaluate_answer(self, query: str, answer: str) -> ConfidenceAnalysis:
+        heuristic_analysis = self._confidence_analyzer.analyze(query, answer)
+        should_run_self_evaluation = (
+            heuristic_analysis.needs_web_search
+            or heuristic_analysis.confidence < 60
+            or self._search_decision_engine.should_search(query)
+            or self._confidence_analyzer._is_factual_query(query)
+        )
+        if not should_run_self_evaluation:
+            return heuristic_analysis
+
+        self_evaluation_json = ""
+        try:
+            prompt = (
+                "You are an internal confidence evaluator. "
+                "Rate your confidence from 0-100. Can this answer be wrong? "
+                "Does this require current information? Would web search improve accuracy? "
+                "Reply only JSON: {\"confidence\": 82, \"needs_web_search\": false, \"reason\": \"...\"}"
+            )
+            self_evaluation_json = await self._llm_provider.complete(
+                f"{prompt}\n\nUser question: {query}\nAnswer: {answer}",
+                metadata={"mode": "confidence_eval"},
+            )
+        except Exception as exc:
+            logger.warning(f"confidence_eval_failed: {exc}")
+
+        self_evaluation: dict[str, Any] | None = None
+        if self_evaluation_json:
+            try:
+                import json
+
+                self_evaluation = json.loads(self_evaluation_json)
+            except Exception:
+                self_evaluation = None
+
+        return self._confidence_analyzer.analyze(query, answer, self_evaluation=self_evaluation)
+
+    def _build_fallback_prompt(self, query: str, web_context: str) -> str:
+        return (
+            "You are Aether answering with fresh search context. "
+            "Treat the provided web context as the primary source of truth. "
+            "Use it to answer the user's question directly and cite it when possible. "
+            "Do not fall back to generic prior knowledge when web context is present. "
+            "If the context is insufficient, say that clearly and avoid guessing.\n\n"
+            f"User question: {query}\n\n"
+            f"Search context:\n{web_context}"
+        )
 
     def _build_sources_section(self, citations: list[dict[str, Any]]) -> str:
         builder = CitationBuilder()
@@ -148,23 +200,25 @@ class ConversationOrchestrator:
             if not memory_context and decision.use_memory:
                 memory_context = ""
 
+        user_query = messages[-1]["content"] if messages else ""
+
         # Perform web search if needed
         web_context = ""
         citations: list[dict[str, Any]] = []
         if decision.use_web_search and self._web_search_pipeline and messages:
-            user_query = messages[-1]["content"]
             web_context, citations = await self._perform_web_search(user_query, limit=5)
 
         prompt = self._prompt_builder.build(
             PromptContext(
-                system_instructions=(system_prompt or "You are Aether, a helpful self-hosted AI assistant.") + "\n\nAlways respond with clean GitHub Flavored Markdown. Structure answers with concise sections, headings, bullet lists, numbered steps, tables when useful, callouts, code fences, and short paragraphs. Avoid HTML, avoid raw wall-of-text responses, and keep formatting polished, professional, and easy to read.",
+                system_instructions=(system_prompt or "You are Aether, a helpful self-hosted AI assistant.") + "\n\nAlways respond with clean GitHub Flavored Markdown. Structure answers with concise sections, headings, bullet lists, numbered steps, tables when useful, callouts, code fences, and short paragraphs. Avoid HTML, avoid raw wall-of-text responses, and keep formatting polished, professional, and easy to read. For questions about current, recent, upcoming, or changing information, prefer the provided web context and cite sources when available.",
                 history=[*history_messages, *[ChatMessage(role=message["role"], content=message["content"]) for message in messages[:-1]]],
-                user_message=messages[-1]["content"] if messages else None,
+                user_message=user_query,
                 memory_context=memory_context or None,
                 web_context=web_context or None,
             )
         )
         response_parts: list[str] = []
+        initial_answer = ""
         async for chunk in self._llm_provider.stream_complete(
             prompt,
             metadata={
@@ -175,7 +229,76 @@ class ConversationOrchestrator:
             },
         ):
             response_parts.append(chunk)
+            initial_answer = "".join(response_parts)
             yield chunk
+
+        analysis = self._confidence_analyzer.analyze(user_query, initial_answer)
+        should_use_internal_evaluation = (
+            analysis.needs_web_search
+            or analysis.confidence < 40
+            or decision.use_web_search
+            or self._search_decision_engine.should_search(user_query)
+            or self._confidence_analyzer._is_factual_query(user_query)
+        )
+        if should_use_internal_evaluation:
+            analysis = await self._evaluate_answer(user_query, initial_answer)
+
+        should_retry_with_web_context = (
+            analysis.needs_web_search
+            or (decision.use_web_search and not web_context and self._web_search_pipeline)
+            or (analysis.confidence < 85 and self._search_decision_engine.should_search(user_query))
+        )
+
+        if should_retry_with_web_context and self._web_search_pipeline and user_query:
+            fallback_context, fallback_citations = await self._perform_web_search(user_query, limit=5)
+            if fallback_context and fallback_citations:
+                web_context = fallback_context
+                citations = fallback_citations
+                fallback_prompt = self._build_fallback_prompt(user_query, web_context)
+                fallback_parts: list[str] = []
+                async for chunk in self._llm_provider.stream_complete(
+                    fallback_prompt,
+                    metadata={
+                        "conversation_id": conversation_id,
+                        "temperature": temperature,
+                        "max_tokens": max_tokens,
+                        "top_p": top_p,
+                    },
+                ):
+                    fallback_parts.append(chunk)
+                    yield chunk
+                response_parts = fallback_parts
+
+        if citations:
+            yield self._build_sources_section(citations)
+
+        if conversation_id and self._history_store is not None:
+            self._history_store.ensure_conversation(conversation_id, title="conversation")
+            self._history_store.append_message(conversation_id, "user", user_query)
+            self._history_store.append_message(conversation_id, "assistant", "".join(response_parts))
+
+        if self._monitoring_service is not None:
+            await self._monitoring_service.publish_event(
+                event_type="chat.response",
+                subsystem="backend",
+                severity="success",
+                category="conversation",
+                title="Chat response ready",
+                description="The assistant response has been generated.",
+                correlation_id=conversation_id,
+                details={
+                    "token_count": len("".join(response_parts)),
+                    "confidence": analysis.confidence,
+                    "needs_web_search": analysis.needs_web_search,
+                    "reason": analysis.reason,
+                    "semantic_score": analysis.semantic_score,
+                    "freshness_score": analysis.freshness_score,
+                    "entity_coverage": analysis.entity_coverage,
+                    "completeness_score": analysis.completeness_score,
+                    "uncertainty_score": analysis.uncertainty_score,
+                    "source": "web" if should_retry_with_web_context and web_context else "ollama",
+                },
+            )
 
         if citations:
             yield self._build_sources_section(citations)
