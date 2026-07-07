@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -107,6 +108,25 @@ async def test_orchestrator_uses_history_and_memory(tmp_path: Path) -> None:
     prompt = provider.prompts[-1]
     assert "Earlier question" in prompt
     assert "User likes Python" in prompt
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_answers_current_date_in_india_directly() -> None:
+    provider = FakeProvider()
+    orchestrator = ConversationOrchestrator(
+        llm_provider=provider,
+        settings=Settings(),
+        memory_manager=FakeMemoryManager(),
+    )
+
+    response_parts: list[str] = []
+    async for chunk in orchestrator.stream_response([{"role": "user", "content": "Tell me today's day and date in India"}]):
+        response_parts.append(chunk)
+
+    response_text = "".join(response_parts)
+    now = datetime.now(timezone.utc) + timedelta(hours=5, minutes=30)
+    assert now.strftime("%A") in response_text
+    assert now.strftime("%d %B %Y") in response_text
 
 
 @pytest.mark.asyncio

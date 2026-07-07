@@ -47,6 +47,190 @@ class ConfidenceAnalysis:
     self_evaluation: int | None = None
 
 
+@dataclass(frozen=True)
+class QueryClassification:
+    category: str
+    requires_search: bool
+    reason: str
+
+
+@dataclass(frozen=True)
+class EvidenceValidationResult:
+    supported: bool
+    reason: str
+    conflict_count: int = 0
+    source_count: int = 0
+
+
+class QueryClassifier:
+    """Classify a user query into a retrieval policy."""
+
+    STATIC_PATTERNS = (
+        "what is recursion",
+        "what is oauth",
+        "what is tcp",
+        "how does gravity work",
+        "explain python decorators",
+        "explain recursion",
+        "what is a decorator",
+        "what is a database",
+        "what is an api",
+    )
+    DYNAMIC_TERMS = (
+        "today",
+        "current",
+        "latest",
+        "new",
+        "recent",
+        "now",
+        "this week",
+        "this month",
+        "2026",
+        "2027",
+        "price",
+        "version",
+        "release",
+        "schedule",
+        "owner",
+        "ceo",
+        "match",
+        "score",
+        "standing",
+        "news",
+        "weather",
+        "sports",
+        "stock",
+        "stocks",
+        "crypto",
+        "bitcoin",
+        "rate",
+        "exchange",
+        "election",
+        "valuation",
+        "ranking",
+        "trending",
+        "breaking",
+        "upcoming",
+        "live",
+        "policy",
+        "government",
+        "company",
+    )
+    LIKELY_DYNAMIC_PATTERNS = (
+        "who owns",
+        "who is the current owner",
+        "current owner",
+        "ceo of",
+        "owner of",
+        "tell me about",
+        "explain openai",
+        "explain apple",
+        "explain tesla",
+        "explain cursor",
+        "tell me about cursor",
+        "tell me about apple",
+        "tell me about tesla",
+    )
+
+    def classify(self, query: str) -> QueryClassification:
+        normalized = self._normalize(query)
+        if not normalized:
+            return QueryClassification(category="ambiguous", requires_search=True, reason="empty query")
+
+        if any(term in normalized for term in self.DYNAMIC_TERMS):
+            return QueryClassification(category="dynamic", requires_search=True, reason="time-sensitive terms detected")
+
+        if any(pattern in normalized for pattern in self.LIKELY_DYNAMIC_PATTERNS):
+            return QueryClassification(category="likely_dynamic", requires_search=True, reason="entity may have changed recently")
+
+        if any(pattern in normalized for pattern in self.STATIC_PATTERNS):
+            return QueryClassification(category="static", requires_search=False, reason="timeless conceptual question")
+
+        if normalized.startswith("explain "):
+            entity = normalized[len("explain "):].strip()
+            if entity and entity not in {"recursion", "python decorators", "oauth", "tcp", "gravity"}:
+                return QueryClassification(category="likely_dynamic", requires_search=True, reason="entity explanation may need current facts")
+            return QueryClassification(category="static", requires_search=False, reason="explanation of a timeless concept")
+
+        return QueryClassification(category="ambiguous", requires_search=True, reason="uncertain; prefer evidence")
+
+    def _normalize(self, text: str) -> str:
+        return re.sub(r"\s+", " ", text.lower()).strip()
+
+
+class EvidenceValidator:
+    """Validate that retrieved evidence is sufficient and internally consistent."""
+
+    def validate(self, documents: Sequence[RetrievedDocument], query: str) -> EvidenceValidationResult:
+        if not documents:
+            return EvidenceValidationResult(supported=False, reason="no retrieved evidence", source_count=0)
+
+        normalized_query = self._normalize(query)
+        texts = [self._normalize(document.content) for document in documents if document.content]
+        if not texts:
+            return EvidenceValidationResult(supported=False, reason="retrieved content was empty", source_count=len(documents))
+
+        conflict_count = 0
+        year_sets = [self._extract_years([text]) for text in texts]
+        if any(year_sets):
+            distinct_years = {year for years in year_sets for year in years}
+            if len(distinct_years) > 1:
+                conflict_count += 1
+
+        if conflict_count:
+            return EvidenceValidationResult(
+                supported=False,
+                reason="retrieved sources disagree on a factual date or version",
+                conflict_count=conflict_count,
+                source_count=len(documents),
+            )
+
+        if len(documents) >= 2 and any(term in normalized_query for term in ("current", "latest", "today", "recent", "news", "price", "release", "version", "owner", "ceo", "schedule", "score")):
+            return EvidenceValidationResult(
+                supported=True,
+                reason="multiple relevant sources agree",
+                source_count=len(documents),
+            )
+
+        return EvidenceValidationResult(supported=True, reason="retrieved evidence is available", source_count=len(documents))
+
+    def _extract_years(self, texts: Sequence[str]) -> set[str]:
+        years: set[str] = set()
+        for text in texts:
+            years.update(re.findall(r"\b(19|20)\d{2}\b", text))
+        return years
+
+    def _normalize(self, text: str) -> str:
+        return re.sub(r"\s+", " ", text.lower()).strip()
+
+
+class SearchQualityChecker:
+    """Refine search queries when the first pass does not yield usable evidence."""
+
+    def should_refine(self, query: str, documents: Sequence[RetrievedDocument], *, attempt: int) -> bool:
+        if attempt >= 3:
+            return False
+        if not documents:
+            return True
+        normalized = self._normalize(query)
+        if any(term in normalized for term in ("current", "latest", "today", "recent", "breaking", "news", "price", "release", "version", "owner", "ceo", "schedule", "score")):
+            return len(documents) < 2
+        return False
+
+    def refine_queries(self, query: str, *, attempt: int) -> list[str]:
+        normalized = self._normalize(query).strip()
+        if not normalized:
+            return []
+        if attempt == 0:
+            return [normalized]
+        if attempt == 1:
+            return [f"{normalized} official source"]
+        return [f"{normalized} latest official source", f"{normalized} current evidence"]
+
+    def _normalize(self, text: str) -> str:
+        return re.sub(r"\s+", " ", text.lower()).strip()
+
+
 class ResponseConfidenceAnalyzer:
     """Score whether an LLM answer is reliable and should trigger web fallback."""
 
@@ -277,10 +461,18 @@ class SearchDecisionEngine:
         "faq": "frequently asked questions",
     }
 
+    def classify(self, query: str) -> QueryClassification:
+        classifier = QueryClassifier()
+        return classifier.classify(query)
+
     def should_search(self, query: str) -> bool:
         normalized = self._normalize(query)
         if not normalized:
             return False
+
+        classification = self.classify(query)
+        if classification.requires_search:
+            return True
         if any(term in normalized for term in self.NEGATIVE_KEYWORDS):
             return False
         if any(term in normalized for term in self.TRIGGER_KEYWORDS):
@@ -642,51 +834,49 @@ class WebSearchPipeline:
         self._retrieval_service = retrieval_service or RetrievalService()
         self._context_builder = context_builder or ContextBuilder()
         self._citation_builder = citation_builder or CitationBuilder()
+        self._evidence_validator = EvidenceValidator()
+        self._quality_checker = SearchQualityChecker()
         self._cache: dict[str, tuple[float, str, list[dict[str, Any]]]] = {}
+        self._audit_log: list[dict[str, Any]] = []
 
     async def run(self, query: str, *, limit: int = 5) -> tuple[str, list[dict[str, Any]]]:
+        context, citations, _ = await self.run_with_evidence(query, limit=limit)
+        return context, citations
+
+    async def run_with_evidence(self, query: str, *, limit: int = 5) -> tuple[str, list[dict[str, Any]], EvidenceValidationResult]:
         normalized_query = self._normalize_query(query)
         if normalized_query:
             cached = self._cache.get(normalized_query)
             if cached is not None:
                 cached_at, context, citations = cached
                 if time.monotonic() - cached_at <= 15 * 60:
-                    return context, citations
+                    return context, citations, EvidenceValidationResult(supported=True, reason="cached evidence", source_count=1)
 
-        if not self._decision_engine.should_search(query):
-            return "", []
-
-        optimized_query = self._decision_engine.optimize_query(query)
-        if not optimized_query:
-            optimized_query = query
+        classification = self._decision_engine.classify(query)
+        if not classification.requires_search and not self._decision_engine.should_search(query):
+            return "", [], EvidenceValidationResult(supported=False, reason="static question; no search required")
 
         if self._search_client is None:
-            return "", []
+            self._audit_log.append({"event": "search_failed", "query": query, "reason": "search client unavailable"})
+            return "I couldn't verify this from reliable sources.", [], EvidenceValidationResult(supported=False, reason="search client unavailable")
 
-        try:
-            raw_results = await self._search_client.search(optimized_query, limit=limit)
-        except Exception:
-            return "Recent web information could not be retrieved reliably; answering from internal knowledge.", []
+        documents: list[RetrievedDocument] = []
+        citations: list[dict[str, Any]] = []
+        validation = EvidenceValidationResult(supported=False, reason="no evidence retrieved")
 
-        ranked_results = self._ranking_service.rank_results(raw_results, query)
-        documents = await self._retrieval_service.retrieve(ranked_results[:limit])
-        if documents:
-            context = self._context_builder.build_context(documents, query)
-            citations = [
-                {
-                    "title": document.title,
-                    "url": document.url,
-                    "site_name": document.site_name,
-                    "published_date": document.published_date,
-                }
-                for document in documents
-            ]
-            if normalized_query:
-                self._cache[normalized_query] = (time.monotonic(), context, citations)
-            return context, citations
+        for attempt in range(3):
+            query_variants = self._quality_checker.refine_queries(query, attempt=attempt)
+            if not query_variants:
+                query_variants = [query]
+            search_query = self._decision_engine.optimize_query(query_variants[0]) or query_variants[0]
+            try:
+                raw_results = await self._search_client.search(search_query, limit=limit)
+            except Exception:
+                self._audit_log.append({"event": "search_failed", "query": search_query, "reason": "search request failed"})
+                continue
 
-        fallback_context = self._context_builder.build_context(
-            [
+            ranked_results = self._ranking_service.rank_results(raw_results, query)
+            documents = [
                 RetrievedDocument(
                     title=result.title,
                     url=result.url,
@@ -695,24 +885,47 @@ class WebSearchPipeline:
                     published_date=result.published_date,
                 )
                 for result in ranked_results[:limit]
-            ],
-            query,
-        )
-        fallback_citations = [
-            {
-                "title": result.title,
-                "url": result.url,
-                "site_name": result.site_name,
-                "published_date": result.published_date,
-            }
-            for result in ranked_results[:limit]
-        ]
+            ]
+            if documents:
+                fetched_documents = await self._retrieval_service.retrieve(ranked_results[:limit])
+                documents = [document for document in fetched_documents if document.content] or documents
+                validation = self._evidence_validator.validate(documents, query)
+                citations = [
+                    {
+                        "title": document.title,
+                        "url": document.url,
+                        "site_name": document.site_name,
+                        "published_date": document.published_date,
+                    }
+                    for document in documents
+                ]
+                if validation.supported or not self._quality_checker.should_refine(query, documents, attempt=attempt):
+                    break
+
+            if not documents and self._quality_checker.should_refine(query, documents, attempt=attempt):
+                self._audit_log.append({"event": "search_refined", "query": search_query, "reason": "initial attempt returned no evidence"})
+                continue
+
+            if not documents:
+                self._audit_log.append({"event": "search_failed", "query": search_query, "reason": "no usable evidence"})
+                break
+
+        if documents and validation.supported:
+            context = self._context_builder.build_context(documents, query)
+            if normalized_query:
+                self._cache[normalized_query] = (time.monotonic(), context, citations)
+            return context, citations, validation
+
+        if documents and not validation.supported:
+            self._audit_log.append({"event": "evidence_rejected", "query": query, "reason": validation.reason})
+            if normalized_query:
+                self._cache[normalized_query] = (time.monotonic(), "I couldn't verify this from reliable sources.", [])
+            return "I couldn't verify this from reliable sources.", [], validation
+
         if normalized_query:
-            self._cache[normalized_query] = (time.monotonic(), fallback_context, fallback_citations)
-        return fallback_context, fallback_citations
-        if normalized_query:
-            self._cache[normalized_query] = (time.monotonic(), context, citations)
-        return context, citations
+            self._cache[normalized_query] = (time.monotonic(), "I couldn't verify this from reliable sources.", [])
+        self._audit_log.append({"event": "search_failed", "query": query, "reason": "no evidence after retries"})
+        return "I couldn't verify this from reliable sources.", [], EvidenceValidationResult(supported=False, reason="no evidence after retries")
 
     def _normalize_query(self, query: str) -> str:
         return re.sub(r"\s+", " ", query.strip().lower())

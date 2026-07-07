@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator, Mapping
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from app.chat.prompt_builder import PromptBuilder, PromptContext
@@ -15,6 +16,7 @@ from app.monitoring.service import MonitoringService
 from app.web.search import (
     CitationBuilder,
     ConfidenceAnalysis,
+    EvidenceValidationResult,
     ResponseConfidenceAnalyzer,
     SearchDecisionEngine,
     SearXNGClient,
@@ -77,34 +79,99 @@ class ConversationOrchestrator:
             (message["content"] for message in reversed(messages) if message.get("role") == "user"),
             "",
         ).lower()
-        
-        use_web_search = self._search_decision_engine.should_search(last_user_message)
+
+        classification = self._search_decision_engine.classify(last_user_message)
+        use_web_search = classification.requires_search or self._search_decision_engine.should_search(last_user_message)
         if not use_web_search:
             use_web_search = any(keyword in last_user_message for keyword in ["search", "look", "find", "news"])
-        
-        # Check for real-time information requests
+
         if not use_web_search:
             use_web_search = any(keyword in last_user_message for keyword in self.REALTIME_KEYWORDS)
-        
-        # Check for memory-related requests
+
         use_memory = any(keyword in last_user_message for keyword in ["remember", "memory", "recall", "previous", "earlier"])
-        
+
         return OrchestrationDecision(
             use_web_search=use_web_search,
-            use_memory=use_memory
+            use_memory=use_memory,
         )
 
-    async def _perform_web_search(self, query: str, limit: int = 5) -> tuple[str, list[dict[str, Any]]]:
-        """Perform web search and format results."""
+    def _is_current_datetime_query(self, query: str) -> bool:
+        normalized = query.lower()
+        if any(phrase in normalized for phrase in (
+            "today's day and date",
+            "today's date",
+            "day and date today",
+            "current date",
+            "current time",
+            "what day is it",
+            "what date is it",
+            "what is today's date",
+        )):
+            return True
+        return any(term in normalized for term in ("today", "date", "day", "time")) and "india" in normalized
+
+    def _build_current_datetime_response(self, query: str) -> str | None:
+        if not self._is_current_datetime_query(query):
+            return None
+
+        normalized_query = query.lower()
+        utc_now = datetime.now(timezone.utc)
+        if "india" in normalized_query:
+            now = utc_now + timedelta(hours=5, minutes=30)
+            date_label = now.strftime("%A, %d %B %Y")
+            if "time" in normalized_query:
+                return f"In India, it is {now.strftime('%H:%M:%S IST')} on {date_label}."
+            return f"Today in India is {date_label}."
+
+        now = utc_now
+        date_label = now.strftime("%A, %d %B %Y")
+        if "time" in normalized_query:
+            return f"It is {now.strftime('%H:%M:%S UTC')} on {date_label}."
+        return f"Today is {date_label}."
+
+    def _is_live_information_query(self, query: str) -> bool:
+        normalized = query.lower()
+        return any(term in normalized for term in (
+            "today",
+            "current",
+            "latest",
+            "recent",
+            "breaking",
+            "live",
+            "upcoming",
+            "next",
+            "schedule",
+            "match",
+            "fixture",
+            "series",
+            "result",
+            "score",
+            "news",
+            "weather",
+            "date",
+            "time",
+            "release",
+            "version",
+            "price",
+            "stock",
+            "crypto",
+            "bitcoin",
+        ))
+
+    async def _perform_web_search(self, query: str, limit: int = 5) -> tuple[str, list[dict[str, Any]], EvidenceValidationResult]:
+        """Perform web search and format results with evidence validation."""
         if not self._web_search_pipeline:
             logger.warning("Web search requested but client not configured")
-            return "", []
+            return "", [], EvidenceValidationResult(supported=False, reason="web search not configured")
 
         try:
-            return await self._web_search_pipeline.run(query, limit=limit)
+            if hasattr(self._web_search_pipeline, "run_with_evidence"):
+                return await self._web_search_pipeline.run_with_evidence(query, limit=limit)
+            context, citations = await self._web_search_pipeline.run(query, limit=limit)
+            return context, citations, EvidenceValidationResult(supported=bool(context), reason="legacy pipeline fallback")
         except Exception as e:
             logger.error(f"web_search_failed: {e}")
-            return "", []
+            return "", [], EvidenceValidationResult(supported=False, reason=str(e))
 
     async def _evaluate_answer(self, query: str, answer: str) -> ConfidenceAnalysis:
         heuristic_analysis = self._confidence_analyzer.analyze(query, answer)
@@ -193,6 +260,10 @@ class ConversationOrchestrator:
                     for message in stored_history
                 )
 
+        user_query = messages[-1]["content"] if messages else ""
+        classification = self._search_decision_engine.classify(user_query)
+        should_use_live_evidence = classification.requires_search or decision.use_web_search or self._is_live_information_query(user_query)
+
         memory_context = ""
         if messages:
             memory_results = await self._memory_manager.search_semantic(messages[-1]["content"], limit=2)
@@ -200,13 +271,24 @@ class ConversationOrchestrator:
             if not memory_context and decision.use_memory:
                 memory_context = ""
 
-        user_query = messages[-1]["content"] if messages else ""
+        direct_response = self._build_current_datetime_response(user_query)
+        if direct_response is not None:
+            if conversation_id and self._history_store is not None:
+                self._history_store.ensure_conversation(conversation_id, title="conversation")
+                self._history_store.append_message(conversation_id, "user", user_query)
+                self._history_store.append_message(conversation_id, "assistant", direct_response)
+            yield direct_response
+            return
 
-        # Perform web search if needed
         web_context = ""
         citations: list[dict[str, Any]] = []
-        if decision.use_web_search and self._web_search_pipeline and messages:
-            web_context, citations = await self._perform_web_search(user_query, limit=5)
+        validation = EvidenceValidationResult(supported=False, reason="no search performed")
+        if should_use_live_evidence and self._web_search_pipeline and messages:
+            web_context, citations, validation = await self._perform_web_search(user_query, limit=5)
+
+        if should_use_live_evidence and not web_context and self._web_search_pipeline:
+            yield "I couldn't verify this from reliable sources."
+            return
 
         prompt = self._prompt_builder.build(
             PromptContext(
@@ -240,17 +322,18 @@ class ConversationOrchestrator:
             or self._search_decision_engine.should_search(user_query)
             or self._confidence_analyzer._is_factual_query(user_query)
         )
-        if should_use_internal_evaluation:
+        if should_use_internal_evaluation and not should_use_live_evidence:
             analysis = await self._evaluate_answer(user_query, initial_answer)
 
         should_retry_with_web_context = (
-            analysis.needs_web_search
+            should_use_live_evidence
+            or analysis.needs_web_search
             or (decision.use_web_search and not web_context and self._web_search_pipeline)
             or (analysis.confidence < 85 and self._search_decision_engine.should_search(user_query))
         )
 
         if should_retry_with_web_context and self._web_search_pipeline and user_query:
-            fallback_context, fallback_citations = await self._perform_web_search(user_query, limit=5)
+            fallback_context, fallback_citations, _ = await self._perform_web_search(user_query, limit=5)
             if fallback_context and fallback_citations:
                 web_context = fallback_context
                 citations = fallback_citations

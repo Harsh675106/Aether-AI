@@ -2,6 +2,7 @@ import pytest
 
 from app.web.search import (
     CitationBuilder,
+    QueryClassifier,
     ResponseConfidenceAnalyzer,
     SearchDecisionEngine,
     WebSearchPipeline,
@@ -42,6 +43,21 @@ def test_response_confidence_analyzer_flags_uncertain_answers() -> None:
 
     assert analysis.confidence < 60
     assert analysis.needs_web_search is True
+
+
+def test_query_classifier_routes_dynamic_and_static_queries() -> None:
+    classifier = QueryClassifier()
+
+    static = classifier.classify("Explain recursion in simple terms")
+    dynamic = classifier.classify("Who owns Cursor right now?")
+    likely_dynamic = classifier.classify("Tell me about Apple")
+
+    assert static.category == "static"
+    assert static.requires_search is False
+    assert dynamic.category == "dynamic"
+    assert dynamic.requires_search is True
+    assert likely_dynamic.category == "likely_dynamic"
+    assert likely_dynamic.requires_search is True
 
 
 @pytest.mark.asyncio
@@ -98,3 +114,17 @@ async def test_web_search_pipeline_uses_search_result_summaries_when_retrieval_f
     assert "OpenAI announced a new pricing tier" in context
     assert len(citations) == 1
     assert citations[0]["title"] == "OpenAI Pricing Update"
+
+
+@pytest.mark.asyncio
+async def test_web_search_pipeline_returns_verification_fallback_when_evidence_is_missing() -> None:
+    class EmptySearchClient:
+        async def search(self, query: str, *, limit: int = 5) -> list[dict[str, object]]:
+            return []
+
+    pipeline = WebSearchPipeline(search_client=EmptySearchClient())
+
+    context, citations = await pipeline.run("Who owns Cursor right now?")
+
+    assert context.startswith("I couldn't verify")
+    assert citations == []
