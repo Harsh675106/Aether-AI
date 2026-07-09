@@ -43,14 +43,14 @@ ollama serve
 Open a **new terminal** and start the self-hosted SearXNG instance from the repo's Docker compose setup:
 
 ```powershell
-cd AetherAI/docker/searxng
+cd docker/searxng
 docker compose up -d
 ```
 
 To stop it later:
 
 ```powershell
-cd AetherAI/docker/searxng
+cd docker/searxng
 docker compose down
 ```
 

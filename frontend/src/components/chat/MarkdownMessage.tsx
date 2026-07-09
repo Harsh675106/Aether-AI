@@ -133,13 +133,22 @@ const CustomHeading = React.memo(({ level, children }: { level: number; children
 });
 CustomHeading.displayName = "CustomHeading";
 
+const extractTextContent = (node: React.ReactNode): string => {
+  if (node === null || node === undefined || typeof node === "boolean") return "";
+  if (typeof node === "string" || typeof node === "number") return String(node);
+  if (Array.isArray(node)) return node.map(extractTextContent).join("");
+  if (React.isValidElement<{ children?: React.ReactNode }>(node)) {
+    return extractTextContent(node.props.children);
+  }
+  return "";
+};
 const CodeBlock = React.memo(({ className, children }: { className?: string; children: React.ReactNode }) => {
   const [copied, setCopied] = useState(false);
   const match = /language-(\w+)/.exec(className || "");
   const language = match ? match[1] : "text";
   
   const rawCode = useMemo(() => {
-    return String(children).replace(/\n$/, "");
+    return extractTextContent(children).replace(/\n$/, "");
   }, [children]);
 
   const handleCopy = async () => {

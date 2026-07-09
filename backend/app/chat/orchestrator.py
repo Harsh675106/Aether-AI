@@ -1,5 +1,6 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
+import re
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -152,8 +153,11 @@ class ConversationOrchestrator:
             else:
                 validation = EvidenceValidationResult(supported=False, reason="search skipped by router")
 
-            if decision.use_search and not web_context:
-                web_context = "Web search was required but no reliable evidence was retrieved. Tell the user that verification failed and avoid guessing."
+            if decision.use_search and not validation.supported:
+                fallback = "I could not verify this from reliable current sources, so I won't guess. Please try again when search is available or ask for a non-current explanation."
+                response_parts.append(fallback)
+                yield fallback
+                return
 
             metadata.ollama = "Used" if decision.use_ollama else "Skipped"
             if decision.use_ollama:
@@ -251,38 +255,62 @@ class ConversationOrchestrator:
 
     def _is_current_datetime_query(self, query: str) -> bool:
         normalized = query.lower()
-        if any(
-            phrase in normalized
-            for phrase in (
-                "today's day and date",
-                "today's date",
-                "day and date today",
-                "current date",
-                "current time",
-                "what day is it",
-                "what date is it",
-                "what is today's date",
-            )
-        ):
+        date_phrases = (
+            "today's day and date",
+            "today's date",
+            "tomorrow's date",
+            "tomorrow date",
+            "yesterday's date",
+            "yesterday date",
+            "day and date today",
+            "current date",
+            "current time",
+            "what day is it",
+            "what date is it",
+            "what is today's date",
+            "what is tomorrow's date",
+            "what is yesterday's date",
+        )
+        if any(phrase in normalized for phrase in date_phrases):
             return True
-        return any(term in normalized for term in ("today", "date", "day", "time")) and "india" in normalized
+        has_calendar_word = re.search(r"\b(date|day|time)\b", normalized) is not None
+        return has_calendar_word and any(
+            marker in normalized for marker in ("india", "ist", "current", "now", "today", "tomorrow", "yesterday")
+        )
 
     def _build_current_datetime_response(self, query: str) -> str | None:
         if not self._is_current_datetime_query(query):
             return None
 
         normalized_query = query.lower()
-        utc_now = datetime.now(timezone.utc)
-        if "india" in normalized_query:
-            now = utc_now + timedelta(hours=5, minutes=30)
-            date_label = now.strftime("%A, %d %B %Y")
-            if "time" in normalized_query:
-                return f"In India, it is {now.strftime('%H:%M:%S IST')} on {date_label}."
-            return f"Today in India is {date_label}."
+        use_india_time = "india" in normalized_query or "ist" in normalized_query
+        now = datetime.now(timezone.utc)
+        if use_india_time:
+            now = now + timedelta(hours=5, minutes=30)
 
-        now = utc_now
-        date_label = now.strftime("%A, %d %B %Y")
-        if "time" in normalized_query:
-            return f"It is {now.strftime('%H:%M:%S UTC')} on {date_label}."
-        return f"Today is {date_label}."
+        offset_days = 0
+        label = "Today"
+        if "tomorrow" in normalized_query:
+            offset_days = 1
+            label = "Tomorrow"
+        elif "yesterday" in normalized_query:
+            offset_days = -1
+            label = "Yesterday"
+
+        target = now + timedelta(days=offset_days)
+        date_label = target.strftime("%A, %d %B %Y")
+        zone_label = " in India" if use_india_time else ""
+
+        if "time" in normalized_query and offset_days == 0:
+            suffix = "IST" if use_india_time else "UTC"
+            prefix = "In India, it" if use_india_time else "It"
+            return f"{prefix} is {target.strftime('%H:%M:%S')} {suffix} on {date_label}."
+
+        return f"{label}{zone_label} is {date_label}."
+
+
+
+
+
+
 

@@ -1,9 +1,12 @@
-﻿import pytest
+import pytest
 
 from app.web.search import (
     CitationBuilder,
+    EvidenceValidator,
     QueryClassifier,
+    RankingService,
     ResponseConfidenceAnalyzer,
+    RetrievedDocument,
     SearchDecisionEngine,
     WebSearchPipeline,
 )
@@ -14,7 +17,7 @@ def test_search_decision_engine_triggers_for_current_topics() -> None:
 
     assert engine.should_search("What are the latest pricing changes for OpenAI?") is True
     assert engine.should_search("What does the Python documentation say about async?") is True
-    assert engine.should_search("Tell me the next India menâ€™s T20 match details vs England") is True
+    assert engine.should_search("Tell me the next India men’s T20 match details vs England") is True
     assert engine.should_search("Explain recursion in simple terms") is False
 
 
@@ -166,7 +169,7 @@ async def test_web_search_pipeline_does_not_cache_failed_queries() -> None:
 
         async def search(self, query: str, *, limit: int = 5) -> list[dict[str, object]]:
             self.calls += 1
-            if self.calls == 1:
+            if self.calls <= 3:
                 return []
             return [
                 {
@@ -186,5 +189,38 @@ async def test_web_search_pipeline_does_not_cache_failed_queries() -> None:
     assert first_citations == []
     assert "latest verified result" in second_context.lower()
     assert len(second_citations) == 1
-    assert client.calls == 2
+    assert client.calls == 4
+
+
+def test_search_optimizer_adds_context_for_sensitive_live_queries() -> None:
+    engine = SearchDecisionEngine()
+
+    assert "India" in engine.optimize_query("Current CM of Punjab")
+    assert "python.org" in engine.optimize_query("Latest Python version")
+    assert "BCCI" in engine.optimize_query("Tell me mens t20 India Captain Now")
+    assert "24k" in engine.optimize_query("Gold rate today in India")
+
+
+def test_ranking_penalizes_pakistan_punjab_for_india_cm_query() -> None:
+    ranking = RankingService()
+    results = [
+        {
+            "title": "Chief Minister of Punjab Pakistan",
+            "url": "https://punjab.gov.pk/cm",
+            "content": "Maryam Nawaz is Chief Minister in Lahore Pakistan.",
+        },
+        {
+            "title": "Office of Chief Minister Punjab India",
+            "url": "https://cmoffice.punjab.gov.in/",
+            "content": "Official Government of Punjab India Chief Minister information.",
+        },
+    ]
+
+    ranked = ranking.rank_results(results, "Current CM of Punjab")
+
+    assert ranked[0].url == "https://cmoffice.punjab.gov.in/"
+
+
+
+
 

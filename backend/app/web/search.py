@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import asyncio
 import math
@@ -88,12 +88,20 @@ class QueryClassifier:
         "2026",
         "2027",
         "price",
+        "gold rate",
+        "captain",
+        "chief minister",
+        "prime minister",
+        "t20",
         "version",
         "release",
         "schedule",
         "owner",
         "ceo",
         "match",
+        "captain",
+        "chief minister",
+        "prime minister",
         "score",
         "standing",
         "news",
@@ -177,7 +185,7 @@ class EvidenceValidator:
             return EvidenceValidationResult(supported=False, reason="retrieved content was empty", source_count=len(documents))
 
         conflict_count = 0
-if len(documents) >= 2 and any(term in normalized_query for term in ("current", "latest", "today", "recent", "news", "price", "release", "version", "owner", "ceo", "schedule", "score")):
+        if len(documents) >= 2 and any(term in normalized_query for term in ("current", "latest", "today", "recent", "news", "price", "release", "version", "owner", "ceo", "schedule", "score")):
             return EvidenceValidationResult(
                 supported=True,
                 reason="multiple relevant sources agree",
@@ -437,7 +445,7 @@ class SearchDecisionEngine:
         "framework", "library", "company", "product", "government", "technology",
         "roadmap", "changelog", "conference", "event", "policy", "regulation",
         "next", "upcoming", "match", "fixture", "schedule", "series", "result", "score",
-        "t20", "ipl", "world cup", "premier league", "nba", "epl",
+        "t20", "captain", "chief minister", "prime minister", "cm", "pm", "ipl", "world cup", "premier league", "nba", "epl",
     }
     NEGATIVE_KEYWORDS = {
         "explain", "why", "how", "describe", "summarize", "write", "brainstorm",
@@ -481,10 +489,30 @@ class SearchDecisionEngine:
         text = re.sub(r"\b(what|what's|who|when|where|why|how|can|could|please|tell|me|find|search|show|give|the|a|an|is|are|was|were|do|does|did|should|for|about|of|to|from|in|on|and|or)\b", " ", normalized)
         for abbreviation, expansion in self.ABBREVIATIONS.items():
             text = re.sub(rf"\b{re.escape(abbreviation)}\b", expansion, text)
-        text = re.sub(r"\s+", " ", text).strip()
-        if len(text) > 120:
-            return text[:120].strip()
-        return text or normalized
+        text = re.sub(r"\s+", " ", text).strip() or normalized
+        text = self._add_domain_context(text, normalized)
+        if len(text) > 160:
+            return text[:160].strip()
+        return text
+
+    def _add_domain_context(self, text: str, original_query: str) -> str:
+        additions: list[str] = []
+        if "punjab" in original_query and any(term in original_query for term in ("cm", "chief minister")) and "pakistan" not in original_query:
+            additions.extend(["India", "official", "chief minister"])
+        if "india" in original_query and any(term in original_query for term in ("pm", "prime minister")):
+            additions.extend(["official", "prime minister"])
+        if "python" in original_query and any(term in original_query for term in ("latest", "current", "version", "release")):
+            additions.extend(["python.org", "downloads"])
+        if "gold" in original_query and any(term in original_query for term in ("price", "rate", "today", "current")):
+            additions.extend(["India", "today", "22k", "24k"])
+        if "india" in original_query and "t20" in original_query and "captain" in original_query:
+            additions.extend(["BCCI", "official", "T20I"])
+
+        enriched = text
+        for addition in additions:
+            if addition.lower() not in enriched.lower():
+                enriched = f"{enriched} {addition}".strip()
+        return enriched
 
     def _normalize(self, text: str) -> str:
         return re.sub(r"\s+", " ", text.lower()).strip()
@@ -640,6 +668,13 @@ class RankingService:
         "githubusercontent.com",
         "w3.org",
         "openai.com",
+        "python.org",
+        "india.gov.in",
+        "punjab.gov.in",
+        "cmoffice.punjab.gov.in",
+        "eci.gov.in",
+        "bcci.tv",
+        "rbi.org.in",
         "anthropic.com",
         "cloud.google.com",
         "aws.amazon.com",
@@ -668,7 +703,7 @@ class RankingService:
             authority = self._authority_score(url, title, item.get("site_name", ""))
             freshness = self._freshness_score(title, content)
             quality = self._quality_score(title, content)
-            score = relevance * 2.0 + authority + freshness + quality
+            score = relevance * 2.0 + authority + freshness + quality - self._disambiguation_penalty(url, title, content, query)
             ranked.append(
                 SearchResult(
                     title=title,
@@ -682,6 +717,18 @@ class RankingService:
 
         ranked.sort(key=lambda item: item.score, reverse=True)
         return ranked
+
+    def _disambiguation_penalty(self, url: str, title: str, content: str, query: str) -> float:
+        normalized_query = query.lower()
+        if "punjab" not in normalized_query or "pakistan" in normalized_query:
+            return 0.0
+        if not any(term in normalized_query for term in ("cm", "chief minister")):
+            return 0.0
+
+        text = f"{url} {title} {content}".lower()
+        if any(term in text for term in ("pakistan", "lahore", "maryam", "punjab.gov.pk")):
+            return 8.0
+        return 0.0
 
     def _tokenize(self, text: str) -> set[str]:
         return {token for token in re.findall(r"[a-z0-9]+", text.lower()) if token}
@@ -938,6 +985,10 @@ class WebSearchPipeline:
 
     def _normalize_query(self, query: str) -> str:
         return re.sub(r"\s+", " ", query.strip().lower())
+
+
+
+
 
 
 

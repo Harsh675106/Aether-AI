@@ -1,4 +1,4 @@
-﻿import pytest
+import pytest
 
 from app.chat.orchestrator import ConversationOrchestrator
 from app.core.settings import Settings
@@ -154,7 +154,7 @@ async def test_search_failure_falls_back_to_ollama_gracefully() -> None:
 
     assert search.calls
     assert "could not verify" in response.lower()
-    assert provider.stream_calls == 1
+    assert provider.stream_calls == 0
 
 
 @pytest.mark.asyncio
@@ -195,4 +195,75 @@ async def test_office_holder_question_searches_without_current_keyword() -> None
 
     assert search.calls == ["Who is PM of India?"]
     assert "Narendra Modi" in provider.prompts[-1]
+
+
+@pytest.mark.asyncio
+async def test_tomorrow_date_is_calculated_without_ollama_or_search() -> None:
+    provider = RecordingProvider()
+    search = RecordingSearch()
+    orchestrator = ConversationOrchestrator(
+        llm_provider=provider,
+        settings=Settings(),
+        memory_manager=RecordingMemory(),
+        web_search_pipeline=search,
+    )
+
+    response = await collect(orchestrator, [{"role": "user", "content": "Tomorrow date"}])
+
+    assert "Tomorrow" in response
+    assert provider.stream_calls == 0
+    assert search.calls == []
+
+
+@pytest.mark.asyncio
+async def test_gold_rate_today_routes_to_search() -> None:
+    provider = RecordingProvider("The verified gold rate is in the supplied context.")
+    search = RecordingSearch(context="India gold rate today: 24K gold is listed by verified market sources.")
+    orchestrator = ConversationOrchestrator(
+        llm_provider=provider,
+        settings=Settings(),
+        memory_manager=RecordingMemory(),
+        web_search_pipeline=search,
+    )
+
+    await collect(orchestrator, [{"role": "user", "content": "what is the gold rate today in india"}])
+
+    assert search.calls == ["what is the gold rate today in india"]
+    assert "India gold rate today" in provider.prompts[-1]
+
+
+@pytest.mark.asyncio
+async def test_india_t20_captain_routes_to_search() -> None:
+    provider = RecordingProvider("The captain is based on verified context.")
+    search = RecordingSearch(context="BCCI profile confirms the India men's T20I captain.")
+    orchestrator = ConversationOrchestrator(
+        llm_provider=provider,
+        settings=Settings(),
+        memory_manager=RecordingMemory(),
+        web_search_pipeline=search,
+    )
+
+    await collect(orchestrator, [{"role": "user", "content": "Tell me mens t20 India Captain Now"}])
+
+    assert search.calls == ["Tell me mens t20 India Captain Now"]
+    assert "BCCI profile" in provider.prompts[-1]
+
+
+@pytest.mark.asyncio
+async def test_unverified_live_search_does_not_call_ollama() -> None:
+    provider = RecordingProvider("hallucinated live answer")
+    search = RecordingSearch(fail=True)
+    orchestrator = ConversationOrchestrator(
+        llm_provider=provider,
+        settings=Settings(),
+        memory_manager=RecordingMemory(),
+        web_search_pipeline=search,
+    )
+
+    response = await collect(orchestrator, [{"role": "user", "content": "Latest Python version"}])
+
+    assert search.calls
+    assert provider.stream_calls == 0
+    assert "could not verify" in response.lower()
+
 

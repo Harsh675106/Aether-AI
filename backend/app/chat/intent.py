@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import re
 from dataclasses import dataclass
@@ -69,6 +69,8 @@ class IntentClassifier:
         "current",
         "latest",
         "today",
+        "tomorrow",
+        "yesterday",
         "tonight",
         "now",
         "recent",
@@ -79,12 +81,14 @@ class IntentClassifier:
         "weather",
         "forecast",
         "price",
+        "rate",
         "stock",
         "share price",
         "crypto",
         "bitcoin",
         "exchange rate",
         "gold price",
+        "gold rate",
         "version",
         "release",
         "changelog",
@@ -158,10 +162,10 @@ class IntentClassifier:
         if "weather" in normalized or "forecast" in normalized:
             return IntentClassification(IntentCategory.WEATHER, 96, False, True, "weather changes over time")
 
-        if any(term in normalized for term in ("stock", "share price", "crypto", "bitcoin", "exchange rate", "gold price")):
+        if any(term in normalized for term in ("stock", "share price", "crypto", "bitcoin", "exchange rate", "gold price", "gold rate")):
             return IntentClassification(IntentCategory.FINANCE, 95, False, True, "market data changes frequently")
 
-        if any(term in normalized for term in ("score", "fixture", "match", "ipl", "nba", "premier league", "live sports")):
+        if any(term in normalized for term in ("score", "fixture", "match", "ipl", "nba", "premier league", "live sports", "t20", "captain")):
             return IntentClassification(IntentCategory.SPORTS, 94, False, True, "sports information changes frequently")
 
         if any(term in normalized for term in ("latest news", "breaking news", "headlines")):
@@ -221,5 +225,9 @@ class IntentClassifier:
 
     def _normalize(self, text: str) -> str:
         return re.sub(r"\s+", " ", text.lower()).strip()
+
+
+
+
 
 

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { MarkdownMessage } from "./MarkdownMessage";
@@ -18,9 +18,11 @@ describe("MarkdownMessage", () => {
 
     expect(screen.getByText("Heading")).toBeInTheDocument();
     expect(screen.getByText("item one")).toBeInTheDocument();
-    expect(screen.getByText("const answer = 42;")).toBeInTheDocument();
+    expect(document.querySelector("code")).toHaveTextContent(/const\s+answer\s+=\s+42;/);
 
     fireEvent.click(screen.getByRole("button", { name: /copy code/i }));
-    expect(writeText).toHaveBeenCalledWith("const answer = 42;");
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith("const answer = 42;"));
   });
 });
+
+
