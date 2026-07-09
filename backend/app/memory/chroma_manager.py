@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import hashlib
 from collections.abc import Mapping
@@ -39,10 +39,16 @@ class ChromaMemoryManager(MemoryManager):
         )
 
     async def search_semantic(self, query: str, *, limit: int = 3) -> list[dict[str, Any]]:
-        results = self.collection.query(query_texts=[query], n_results=limit)
+        if not query.strip():
+            return []
+
+        results = self.collection.query(query_texts=[query], n_results=limit, include=["documents", "metadatas", "distances"])
         documents = results.get("documents", [[]])[0]
         metadatas = results.get("metadatas", [[]])[0]
+        distances = results.get("distances", [[]])[0]
         return [
-            {"content": document, "metadata": metadata}
-            for document, metadata in zip(documents, metadatas, strict=False)
+            {"content": document, "metadata": metadata, "distance": distance}
+            for document, metadata, distance in zip(documents, metadatas, distances, strict=False)
         ]
+
+

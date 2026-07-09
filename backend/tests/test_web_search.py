@@ -1,4 +1,4 @@
-import pytest
+﻿import pytest
 
 from app.web.search import (
     CitationBuilder,
@@ -14,7 +14,7 @@ def test_search_decision_engine_triggers_for_current_topics() -> None:
 
     assert engine.should_search("What are the latest pricing changes for OpenAI?") is True
     assert engine.should_search("What does the Python documentation say about async?") is True
-    assert engine.should_search("Tell me the next India men’s T20 match details vs England") is True
+    assert engine.should_search("Tell me the next India menâ€™s T20 match details vs England") is True
     assert engine.should_search("Explain recursion in simple terms") is False
 
 
@@ -128,3 +128,63 @@ async def test_web_search_pipeline_returns_verification_fallback_when_evidence_i
 
     assert context.startswith("I couldn't verify")
     assert citations == []
+
+def test_query_classifier_skips_greetings_identity_and_empty_queries() -> None:
+    classifier = QueryClassifier()
+
+    assert classifier.classify("").requires_search is False
+    assert classifier.classify("Hello").requires_search is False
+    assert classifier.classify("What is your name?").requires_search is False
+
+
+def test_evidence_validator_allows_multiple_years_in_relevant_sources() -> None:
+    validator = EvidenceValidator()
+    documents = [
+        RetrievedDocument(
+            title="Official profile",
+            url="https://example.gov/profile",
+            content="Updated in 2026. The minister was born in 1970 and won elections in 2022.",
+        ),
+        RetrievedDocument(
+            title="News profile",
+            url="https://news.example/profile",
+            content="The current minister took office in 2022 and the page was reviewed in 2026.",
+        ),
+    ]
+
+    result = validator.validate(documents, "Who is the current minister?")
+
+    assert result.supported is True
+    assert result.conflict_count == 0
+
+
+@pytest.mark.asyncio
+async def test_web_search_pipeline_does_not_cache_failed_queries() -> None:
+    class FlakySearchClient:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def search(self, query: str, *, limit: int = 5) -> list[dict[str, object]]:
+            self.calls += 1
+            if self.calls == 1:
+                return []
+            return [
+                {
+                    "title": "Verified result",
+                    "url": "https://example.com/verified",
+                    "content": "The latest verified result is available in 2026.",
+                }
+            ]
+
+    client = FlakySearchClient()
+    pipeline = WebSearchPipeline(search_client=client)
+
+    first_context, first_citations = await pipeline.run("Latest verified result")
+    second_context, second_citations = await pipeline.run("Latest verified result")
+
+    assert first_context.startswith("I couldn't verify")
+    assert first_citations == []
+    assert "latest verified result" in second_context.lower()
+    assert len(second_citations) == 1
+    assert client.calls == 2
+

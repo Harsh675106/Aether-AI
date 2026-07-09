@@ -1,11 +1,15 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
-from collections.abc import AsyncIterator, Mapping
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from app.chat.prompt_builder import PromptBuilder, PromptContext
+from app.chat.intent import IntentCategory, IntentClassifier
+from app.chat.memory_manager import RelevantMemoryManager
+from app.chat.monitoring_logger import MonitoringLogger, PipelineMetadata
+from app.chat.response_generator import GenerationContext, ResponseGenerator
+from app.chat.routing import RoutingDecision, RoutingEngine
 from app.chat.schemas import ChatMessage
 from app.core.interfaces import LLMProvider, MemoryManager
 from app.core.logging import get_logger
@@ -13,16 +17,7 @@ from app.core.settings import Settings
 from app.memory.history_store import ConversationHistoryStore
 from app.memory.manager import PlaceholderMemoryManager
 from app.monitoring.service import MonitoringService
-from app.web.search import (
-    CitationBuilder,
-    ConfidenceAnalysis,
-    EvidenceValidationResult,
-    ResponseConfidenceAnalyzer,
-    SearchDecisionEngine,
-    SearXNGClient,
-    WebContentExtractor,
-    WebSearchPipeline,
-)
+from app.web.search import CitationBuilder, EvidenceValidationResult, SearXNGClient, WebContentExtractor, WebSearchPipeline
 
 logger = get_logger(__name__)
 
@@ -34,79 +29,241 @@ class OrchestrationDecision:
     use_tools: bool = False
 
 
-class ConversationOrchestrator:
-    """Select the minimal execution path for each request."""
+class FallbackManager:
+    """Gracefully degrade when optional backend components fail."""
 
-    # Keywords that indicate questions needing real-time/current information
-    REALTIME_KEYWORDS = {
-        "today", "tomorrow", "now", "current", "latest", "recent", "breaking",
-        "live", "this week", "this month", "schedule", "date", "time", "next",
-        "upcoming", "weather", "news", "score", "result", "match", "game",
-        "fixture", "series", "t20", "ipl", "world cup", "premier league", "nba",
-        "epl", "cricket", "football", "basketball", "tennis", "election", "stock",
-        "price", "bitcoin", "crypto", "rate", "exchange", "today's",
-        "2024", "2025", "2026", "event", "conference", "release", "launch"
-    }
+    async def search_with_retry(
+        self,
+        pipeline: WebSearchPipeline | None,
+        query: str,
+        *,
+        limit: int = 5,
+    ) -> tuple[str, list[dict[str, Any]], EvidenceValidationResult]:
+        if pipeline is None:
+            return "", [], EvidenceValidationResult(supported=False, reason="web search not configured")
+
+        last_error = "search failed"
+        for _ in range(2):
+            try:
+                if hasattr(pipeline, "run_with_evidence"):
+                    return await pipeline.run_with_evidence(query, limit=limit)
+                context, citations = await pipeline.run(query, limit=limit)
+                return context, citations, EvidenceValidationResult(
+                    supported=bool(context),
+                    reason="legacy pipeline fallback",
+                    source_count=len(citations),
+                )
+            except Exception as exc:  # pragma: no cover - defensive guard
+                last_error = str(exc)
+                logger.warning("web_search_attempt_failed", exc_info=exc)
+        return "", [], EvidenceValidationResult(supported=False, reason=last_error)
+
+
+class ConversationOrchestrator:
+    """Intent-first orchestration for memory, web search, and Ollama."""
 
     def __init__(
         self,
         llm_provider: LLMProvider,
         memory_manager: MemoryManager | None = None,
         settings: Settings | None = None,
-        prompt_builder: PromptBuilder | None = None,
+        prompt_builder: object | None = None,
         history_store: ConversationHistoryStore | None = None,
         web_search_client: SearXNGClient | None = None,
         web_content_extractor: WebContentExtractor | None = None,
         web_search_pipeline: WebSearchPipeline | None = None,
-        search_decision_engine: SearchDecisionEngine | None = None,
+        search_decision_engine: object | None = None,
         monitoring_service: MonitoringService | None = None,
     ) -> None:
         self._llm_provider = llm_provider
         self._memory_manager = memory_manager or PlaceholderMemoryManager()
         self._settings = settings
-        self._prompt_builder = prompt_builder or PromptBuilder()
         self._history_store = history_store
         self._web_search_client = web_search_client
         self._web_content_extractor = web_content_extractor or WebContentExtractor()
-        self._search_decision_engine = search_decision_engine or SearchDecisionEngine()
         self._web_search_pipeline = web_search_pipeline or WebSearchPipeline(search_client=self._web_search_client)
-        self._confidence_analyzer = ResponseConfidenceAnalyzer()
         self._monitoring_service = monitoring_service
 
+        self._intent_classifier = IntentClassifier()
+        self._routing_engine = RoutingEngine()
+        self._relevant_memory = RelevantMemoryManager(self._memory_manager)
+        self._response_generator = ResponseGenerator(llm_provider, prompt_builder=prompt_builder)  # type: ignore[arg-type]
+        self._fallback_manager = FallbackManager()
+        self._monitoring_logger = MonitoringLogger(monitoring_service)
+        self._citation_builder = CitationBuilder()
+
     def decide(self, messages: list[dict[str, str]]) -> OrchestrationDecision:
-        """Decide which augmentations to use based on the user message."""
-        last_user_message = next(
-            (message["content"] for message in reversed(messages) if message.get("role") == "user"),
-            "",
-        ).lower()
+        """Compatibility shim for existing tests and callers."""
+        user_query = self._last_user_message(messages)
+        has_history = len(messages) > 1
+        intent = self._intent_classifier.classify(user_query, has_history=has_history)
+        decision = self._routing_engine.decide(intent)
+        return OrchestrationDecision(use_memory=decision.use_memory, use_web_search=decision.use_search)
 
-        classification = self._search_decision_engine.classify(last_user_message)
-        use_web_search = classification.requires_search or self._search_decision_engine.should_search(last_user_message)
-        if not use_web_search:
-            use_web_search = any(keyword in last_user_message for keyword in ["search", "look", "find", "news"])
+    async def stream_response(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        conversation_id: str | None = None,
+        system_prompt: str | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+        top_p: float | None = None,
+    ) -> AsyncIterator[str]:
+        started_at = self._monitoring_logger.start_timer()
+        await self._monitoring_logger.request_received(conversation_id=conversation_id, message_count=len(messages))
 
-        if not use_web_search:
-            use_web_search = any(keyword in last_user_message for keyword in self.REALTIME_KEYWORDS)
-
-        use_memory = any(keyword in last_user_message for keyword in ["remember", "memory", "recall", "previous", "earlier"])
-
-        return OrchestrationDecision(
-            use_web_search=use_web_search,
-            use_memory=use_memory,
+        user_query = self._last_user_message(messages)
+        history_messages = self._load_history(messages, conversation_id)
+        intent = self._intent_classifier.classify(user_query, has_history=bool(history_messages))
+        decision = self._routing_engine.decide(intent)
+        metadata = PipelineMetadata(
+            intent=intent.category.value,
+            memory="Skipped",
+            search="Skipped",
+            ollama="Skipped",
+            confidence=decision.confidence,
+            reason=decision.reason,
         )
+
+        response_parts: list[str] = []
+        citations: list[dict[str, Any]] = []
+
+        try:
+            direct_response = self._direct_response(intent.category, user_query)
+            if direct_response is not None:
+                response_parts.append(direct_response)
+                yield direct_response
+                return
+
+            memory_result = await self._relevant_memory.retrieve(user_query, enabled=decision.use_memory, limit=3)
+            metadata.memory = f"Used ({memory_result.result_count})" if memory_result.used else f"Skipped ({memory_result.skipped_reason})"
+
+            web_context = ""
+            if decision.use_search:
+                web_context, citations, validation = await self._fallback_manager.search_with_retry(
+                    self._web_search_pipeline,
+                    self._resolve_follow_up_query(user_query, history_messages, decision),
+                    limit=5,
+                )
+                metadata.search = "Used" if web_context else f"Failed ({validation.reason})"
+                metadata.sources = self._unique_source_count(citations)
+                metadata.details["search_validation"] = validation.reason
+            else:
+                validation = EvidenceValidationResult(supported=False, reason="search skipped by router")
+
+            if decision.use_search and not web_context:
+                web_context = "Web search was required but no reliable evidence was retrieved. Tell the user that verification failed and avoid guessing."
+
+            metadata.ollama = "Used" if decision.use_ollama else "Skipped"
+            if decision.use_ollama:
+                async for chunk in self._response_generator.stream(
+                    GenerationContext(
+                        user_query=user_query,
+                        history=history_messages,
+                        memory_context=memory_result.context or None,
+                        web_context=web_context or None,
+                        system_prompt=system_prompt,
+                        metadata={
+                            "conversation_id": conversation_id,
+                            "temperature": temperature,
+                            "max_tokens": max_tokens,
+                            "top_p": top_p,
+                            "intent": intent.category.value,
+                            "route": {
+                                "memory": decision.use_memory,
+                                "search": decision.use_search,
+                                "ollama": decision.use_ollama,
+                            },
+                        },
+                    )
+                ):
+                    response_parts.append(chunk)
+                    yield chunk
+
+            unique_citations = self._deduplicate_citations(citations)
+            if unique_citations:
+                sources_section = self._citation_builder.build_markdown(unique_citations)
+                if sources_section:
+                    response_parts.append(sources_section)
+                    yield sources_section
+
+        except Exception as exc:  # pragma: no cover - defensive guard
+            logger.exception("conversation_orchestration_failed", exc_info=exc)
+            fallback = "Aether hit a backend error while generating the response. Please try again."
+            response_parts = [fallback]
+            yield fallback
+        finally:
+            full_response = "".join(response_parts)
+            self._persist_conversation(conversation_id, user_query, full_response)
+            metadata.latency_ms = int((self._monitoring_logger.start_timer() - started_at) * 1000)
+            metadata.sources = self._unique_source_count(citations)
+            await self._monitoring_logger.response_ready(conversation_id=conversation_id, metadata=metadata)
+
+    def _direct_response(self, category: IntentCategory, query: str) -> str | None:
+        if category == IntentCategory.GREETING:
+            return "Hello! How can I help you today?"
+        if category == IntentCategory.IDENTITY_QUESTION:
+            return "I'm Aether, your self-hosted AI assistant."
+        return self._build_current_datetime_response(query)
+
+    def _last_user_message(self, messages: list[dict[str, str]]) -> str:
+        return next((message.get("content", "") for message in reversed(messages) if message.get("role") == "user"), "")
+
+    def _load_history(self, messages: list[dict[str, str]], conversation_id: str | None) -> list[ChatMessage]:
+        history: list[ChatMessage] = []
+        if conversation_id and self._history_store is not None:
+            stored_history = self._history_store.get_conversation(conversation_id) or []
+            history.extend(ChatMessage(role=message["role"], content=message["content"]) for message in stored_history)
+
+        inline_history = [message for message in messages[:-1] if message.get("role") in {"system", "user", "assistant", "tool"}]
+        history.extend(ChatMessage(role=message["role"], content=message["content"]) for message in inline_history)
+        return history[-20:]
+
+    def _resolve_follow_up_query(self, query: str, history: list[ChatMessage], decision: RoutingDecision) -> str:
+        if decision.intent.category != IntentCategory.FOLLOW_UP_QUESTION or not history:
+            return query
+        recent = " ".join(message.content for message in history[-4:] if message.role in {"user", "assistant"})
+        return f"{recent}\nFollow-up question: {query}"
+
+    def _persist_conversation(self, conversation_id: str | None, user_query: str, assistant_response: str) -> None:
+        if not conversation_id or self._history_store is None or not user_query:
+            return
+        self._history_store.ensure_conversation(conversation_id, title="conversation")
+        self._history_store.append_message(conversation_id, "user", user_query)
+        self._history_store.append_message(conversation_id, "assistant", assistant_response)
+
+    def _deduplicate_citations(self, citations: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        seen: set[str] = set()
+        unique: list[dict[str, Any]] = []
+        for citation in citations:
+            url = str(citation.get("url") or "").strip().rstrip("/").lower()
+            title = str(citation.get("title") or "").strip().lower()
+            key = url or title
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            unique.append(citation)
+        return unique
+
+    def _unique_source_count(self, citations: list[dict[str, Any]]) -> int:
+        return len(self._deduplicate_citations(citations))
 
     def _is_current_datetime_query(self, query: str) -> bool:
         normalized = query.lower()
-        if any(phrase in normalized for phrase in (
-            "today's day and date",
-            "today's date",
-            "day and date today",
-            "current date",
-            "current time",
-            "what day is it",
-            "what date is it",
-            "what is today's date",
-        )):
+        if any(
+            phrase in normalized
+            for phrase in (
+                "today's day and date",
+                "today's date",
+                "day and date today",
+                "current date",
+                "current time",
+                "what day is it",
+                "what date is it",
+                "what is today's date",
+            )
+        ):
             return True
         return any(term in normalized for term in ("today", "date", "day", "time")) and "india" in normalized
 
@@ -129,276 +286,3 @@ class ConversationOrchestrator:
             return f"It is {now.strftime('%H:%M:%S UTC')} on {date_label}."
         return f"Today is {date_label}."
 
-    def _is_live_information_query(self, query: str) -> bool:
-        normalized = query.lower()
-        return any(term in normalized for term in (
-            "today",
-            "current",
-            "latest",
-            "recent",
-            "breaking",
-            "live",
-            "upcoming",
-            "next",
-            "schedule",
-            "match",
-            "fixture",
-            "series",
-            "result",
-            "score",
-            "news",
-            "weather",
-            "date",
-            "time",
-            "release",
-            "version",
-            "price",
-            "stock",
-            "crypto",
-            "bitcoin",
-        ))
-
-    async def _perform_web_search(self, query: str, limit: int = 5) -> tuple[str, list[dict[str, Any]], EvidenceValidationResult]:
-        """Perform web search and format results with evidence validation."""
-        if not self._web_search_pipeline:
-            logger.warning("Web search requested but client not configured")
-            return "", [], EvidenceValidationResult(supported=False, reason="web search not configured")
-
-        try:
-            if hasattr(self._web_search_pipeline, "run_with_evidence"):
-                return await self._web_search_pipeline.run_with_evidence(query, limit=limit)
-            context, citations = await self._web_search_pipeline.run(query, limit=limit)
-            return context, citations, EvidenceValidationResult(supported=bool(context), reason="legacy pipeline fallback")
-        except Exception as e:
-            logger.error(f"web_search_failed: {e}")
-            return "", [], EvidenceValidationResult(supported=False, reason=str(e))
-
-    async def _evaluate_answer(self, query: str, answer: str) -> ConfidenceAnalysis:
-        heuristic_analysis = self._confidence_analyzer.analyze(query, answer)
-        should_run_self_evaluation = (
-            heuristic_analysis.needs_web_search
-            or heuristic_analysis.confidence < 60
-            or self._search_decision_engine.should_search(query)
-            or self._confidence_analyzer._is_factual_query(query)
-        )
-        if not should_run_self_evaluation:
-            return heuristic_analysis
-
-        self_evaluation_json = ""
-        try:
-            prompt = (
-                "You are an internal confidence evaluator. "
-                "Rate your confidence from 0-100. Can this answer be wrong? "
-                "Does this require current information? Would web search improve accuracy? "
-                "Reply only JSON: {\"confidence\": 82, \"needs_web_search\": false, \"reason\": \"...\"}"
-            )
-            self_evaluation_json = await self._llm_provider.complete(
-                f"{prompt}\n\nUser question: {query}\nAnswer: {answer}",
-                metadata={"mode": "confidence_eval"},
-            )
-        except Exception as exc:
-            logger.warning(f"confidence_eval_failed: {exc}")
-
-        self_evaluation: dict[str, Any] | None = None
-        if self_evaluation_json:
-            try:
-                import json
-
-                self_evaluation = json.loads(self_evaluation_json)
-            except Exception:
-                self_evaluation = None
-
-        return self._confidence_analyzer.analyze(query, answer, self_evaluation=self_evaluation)
-
-    def _build_fallback_prompt(self, query: str, web_context: str) -> str:
-        return (
-            "You are Aether answering with fresh search context. "
-            "Treat the provided web context as the primary source of truth. "
-            "Use it to answer the user's question directly and cite it when possible. "
-            "Do not fall back to generic prior knowledge when web context is present. "
-            "If the context is insufficient, say that clearly and avoid guessing.\n\n"
-            f"User question: {query}\n\n"
-            f"Search context:\n{web_context}"
-        )
-
-    def _build_sources_section(self, citations: list[dict[str, Any]]) -> str:
-        builder = CitationBuilder()
-        return builder.build_markdown(citations)
-
-    async def stream_response(
-        self,
-        messages: list[dict[str, str]],
-        *,
-        conversation_id: str | None = None,
-        system_prompt: str | None = None,
-        temperature: float | None = None,
-        max_tokens: int | None = None,
-        top_p: float | None = None,
-    ) -> AsyncIterator[str]:
-        """Stream the response with optional augmentations."""
-        if self._monitoring_service is not None:
-            await self._monitoring_service.publish_event(
-                event_type="chat.request",
-                subsystem="backend",
-                severity="info",
-                category="conversation",
-                title="Chat request received",
-                description="A new conversation request is being processed.",
-                correlation_id=conversation_id,
-                details={"message_count": len(messages)},
-            )
-
-        # Make the orchestration decision
-        decision = self.decide(messages)
-        
-        history_messages: list[ChatMessage] = []
-        if conversation_id and self._history_store is not None:
-            stored_history = self._history_store.get_conversation(conversation_id)
-            if stored_history:
-                history_messages.extend(
-                    ChatMessage(role=message["role"], content=message["content"])
-                    for message in stored_history
-                )
-
-        user_query = messages[-1]["content"] if messages else ""
-        classification = self._search_decision_engine.classify(user_query)
-        should_use_live_evidence = classification.requires_search or decision.use_web_search or self._is_live_information_query(user_query)
-
-        memory_context = ""
-        if messages:
-            memory_results = await self._memory_manager.search_semantic(messages[-1]["content"], limit=2)
-            memory_context = "\n".join(item["content"] for item in memory_results if item.get("content"))
-            if not memory_context and decision.use_memory:
-                memory_context = ""
-
-        direct_response = self._build_current_datetime_response(user_query)
-        if direct_response is not None:
-            if conversation_id and self._history_store is not None:
-                self._history_store.ensure_conversation(conversation_id, title="conversation")
-                self._history_store.append_message(conversation_id, "user", user_query)
-                self._history_store.append_message(conversation_id, "assistant", direct_response)
-            yield direct_response
-            return
-
-        web_context = ""
-        citations: list[dict[str, Any]] = []
-        validation = EvidenceValidationResult(supported=False, reason="no search performed")
-        if should_use_live_evidence and self._web_search_pipeline and messages:
-            web_context, citations, validation = await self._perform_web_search(user_query, limit=5)
-
-        if should_use_live_evidence and not web_context and self._web_search_pipeline:
-            yield "I couldn't verify this from reliable sources."
-            return
-
-        prompt = self._prompt_builder.build(
-            PromptContext(
-                system_instructions=(system_prompt or "You are Aether, a helpful self-hosted AI assistant.") + "\n\nAlways respond with clean GitHub Flavored Markdown. Structure answers with concise sections, headings, bullet lists, numbered steps, tables when useful, callouts, code fences, and short paragraphs. Avoid HTML, avoid raw wall-of-text responses, and keep formatting polished, professional, and easy to read. For questions about current, recent, upcoming, or changing information, prefer the provided web context and cite sources when available.",
-                history=[*history_messages, *[ChatMessage(role=message["role"], content=message["content"]) for message in messages[:-1]]],
-                user_message=user_query,
-                memory_context=memory_context or None,
-                web_context=web_context or None,
-            )
-        )
-        response_parts: list[str] = []
-        initial_answer = ""
-        async for chunk in self._llm_provider.stream_complete(
-            prompt,
-            metadata={
-                "conversation_id": conversation_id,
-                "temperature": temperature,
-                "max_tokens": max_tokens,
-                "top_p": top_p,
-            },
-        ):
-            response_parts.append(chunk)
-            initial_answer = "".join(response_parts)
-            yield chunk
-
-        analysis = self._confidence_analyzer.analyze(user_query, initial_answer)
-        should_use_internal_evaluation = (
-            analysis.needs_web_search
-            or analysis.confidence < 40
-            or decision.use_web_search
-            or self._search_decision_engine.should_search(user_query)
-            or self._confidence_analyzer._is_factual_query(user_query)
-        )
-        if should_use_internal_evaluation and not should_use_live_evidence:
-            analysis = await self._evaluate_answer(user_query, initial_answer)
-
-        should_retry_with_web_context = (
-            should_use_live_evidence
-            or analysis.needs_web_search
-            or (decision.use_web_search and not web_context and self._web_search_pipeline)
-            or (analysis.confidence < 85 and self._search_decision_engine.should_search(user_query))
-        )
-
-        if should_retry_with_web_context and self._web_search_pipeline and user_query:
-            fallback_context, fallback_citations, _ = await self._perform_web_search(user_query, limit=5)
-            if fallback_context and fallback_citations:
-                web_context = fallback_context
-                citations = fallback_citations
-                fallback_prompt = self._build_fallback_prompt(user_query, web_context)
-                fallback_parts: list[str] = []
-                async for chunk in self._llm_provider.stream_complete(
-                    fallback_prompt,
-                    metadata={
-                        "conversation_id": conversation_id,
-                        "temperature": temperature,
-                        "max_tokens": max_tokens,
-                        "top_p": top_p,
-                    },
-                ):
-                    fallback_parts.append(chunk)
-                    yield chunk
-                response_parts = fallback_parts
-
-        if citations:
-            yield self._build_sources_section(citations)
-
-        if conversation_id and self._history_store is not None:
-            self._history_store.ensure_conversation(conversation_id, title="conversation")
-            self._history_store.append_message(conversation_id, "user", user_query)
-            self._history_store.append_message(conversation_id, "assistant", "".join(response_parts))
-
-        if self._monitoring_service is not None:
-            await self._monitoring_service.publish_event(
-                event_type="chat.response",
-                subsystem="backend",
-                severity="success",
-                category="conversation",
-                title="Chat response ready",
-                description="The assistant response has been generated.",
-                correlation_id=conversation_id,
-                details={
-                    "token_count": len("".join(response_parts)),
-                    "confidence": analysis.confidence,
-                    "needs_web_search": analysis.needs_web_search,
-                    "reason": analysis.reason,
-                    "semantic_score": analysis.semantic_score,
-                    "freshness_score": analysis.freshness_score,
-                    "entity_coverage": analysis.entity_coverage,
-                    "completeness_score": analysis.completeness_score,
-                    "uncertainty_score": analysis.uncertainty_score,
-                    "source": "web" if should_retry_with_web_context and web_context else "ollama",
-                },
-            )
-
-        if citations:
-            yield self._build_sources_section(citations)
-
-        if conversation_id and self._history_store is not None:
-            self._history_store.ensure_conversation(conversation_id, title="conversation")
-            self._history_store.append_message(conversation_id, "user", messages[-1]["content"] if messages else "")
-            self._history_store.append_message(conversation_id, "assistant", "".join(response_parts))
-
-        if self._monitoring_service is not None:
-            await self._monitoring_service.publish_event(
-                event_type="chat.response",
-                subsystem="backend",
-                severity="success",
-                category="conversation",
-                title="Chat response ready",
-                description="The assistant response has been generated.",
-                correlation_id=conversation_id,
-                details={"token_count": len("".join(response_parts))},
-            )

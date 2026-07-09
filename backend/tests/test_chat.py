@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+﻿from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -130,7 +130,7 @@ async def test_orchestrator_answers_current_date_in_india_directly() -> None:
 
 
 @pytest.mark.asyncio
-async def test_orchestrator_retries_with_web_context_when_confidence_is_low() -> None:
+async def test_orchestrator_searches_before_model_for_current_questions() -> None:
     provider = FallbackProvider()
     orchestrator = ConversationOrchestrator(
         llm_provider=provider,
@@ -143,6 +143,8 @@ async def test_orchestrator_retries_with_web_context_when_confidence_is_low() ->
     async for chunk in orchestrator.stream_response([{"role": "user", "content": "When was the latest release announced?"}]):
         response_parts.append(chunk)
 
-    assert provider.stream_calls == 2
-    assert any("2026" in part for part in response_parts)
+    assert provider.stream_calls == 1
+    assert "Search context: the latest release was announced in 2026." in provider.prompts[-1]
     assert any("## Sources" in part for part in response_parts)
+
+

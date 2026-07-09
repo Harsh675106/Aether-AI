@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import asyncio
 import math
@@ -135,7 +135,13 @@ class QueryClassifier:
     def classify(self, query: str) -> QueryClassification:
         normalized = self._normalize(query)
         if not normalized:
-            return QueryClassification(category="ambiguous", requires_search=True, reason="empty query")
+            return QueryClassification(category="casual", requires_search=False, reason="empty query")
+
+        if normalized in {"hi", "hello", "hey", "good morning", "good afternoon", "good evening", "namaste"}:
+            return QueryClassification(category="greeting", requires_search=False, reason="simple greeting")
+
+        if any(phrase in normalized for phrase in ("what is your name", "what's your name", "who are you", "your name")):
+            return QueryClassification(category="identity", requires_search=False, reason="assistant identity question")
 
         if any(term in normalized for term in self.DYNAMIC_TERMS):
             return QueryClassification(category="dynamic", requires_search=True, reason="time-sensitive terms detected")
@@ -152,7 +158,7 @@ class QueryClassifier:
                 return QueryClassification(category="likely_dynamic", requires_search=True, reason="entity explanation may need current facts")
             return QueryClassification(category="static", requires_search=False, reason="explanation of a timeless concept")
 
-        return QueryClassification(category="ambiguous", requires_search=True, reason="uncertain; prefer evidence")
+        return QueryClassification(category="general", requires_search=False, reason="no freshness trigger detected")
 
     def _normalize(self, text: str) -> str:
         return re.sub(r"\s+", " ", text.lower()).strip()
@@ -171,21 +177,7 @@ class EvidenceValidator:
             return EvidenceValidationResult(supported=False, reason="retrieved content was empty", source_count=len(documents))
 
         conflict_count = 0
-        year_sets = [self._extract_years([text]) for text in texts]
-        if any(year_sets):
-            distinct_years = {year for years in year_sets for year in years}
-            if len(distinct_years) > 1:
-                conflict_count += 1
-
-        if conflict_count:
-            return EvidenceValidationResult(
-                supported=False,
-                reason="retrieved sources disagree on a factual date or version",
-                conflict_count=conflict_count,
-                source_count=len(documents),
-            )
-
-        if len(documents) >= 2 and any(term in normalized_query for term in ("current", "latest", "today", "recent", "news", "price", "release", "version", "owner", "ceo", "schedule", "score")):
+if len(documents) >= 2 and any(term in normalized_query for term in ("current", "latest", "today", "recent", "news", "price", "release", "version", "owner", "ceo", "schedule", "score")):
             return EvidenceValidationResult(
                 supported=True,
                 reason="multiple relevant sources agree",
@@ -197,7 +189,7 @@ class EvidenceValidator:
     def _extract_years(self, texts: Sequence[str]) -> set[str]:
         years: set[str] = set()
         for text in texts:
-            years.update(re.findall(r"\b(19|20)\d{2}\b", text))
+            years.update(re.findall(r"\b(?:19|20)\d{2}\b", text))
         return years
 
     def _normalize(self, text: str) -> str:
@@ -513,7 +505,11 @@ class WebContentExtractor:
         if trafilatura is not None:
             extracted = trafilatura.extract(html, include_comments=False, include_tables=False)
             if extracted and extracted.strip():
-                return self._clean_text(extracted)
+                heading = self._first_heading(html)
+                cleaned = self._clean_text(extracted)
+                if heading and not cleaned.lower().startswith(heading.lower()):
+                    return self._clean_text(f"{heading} {cleaned}")
+                return cleaned
 
         try:
             from readability import Document  # type: ignore
@@ -526,7 +522,11 @@ class WebContentExtractor:
             except Exception:
                 summary = ""
             if summary and summary.strip():
-                return self._clean_text(summary)
+                heading = self._first_heading(html)
+                cleaned = self._clean_text(summary)
+                if heading and not cleaned.lower().startswith(heading.lower()):
+                    return self._clean_text(f"{heading} {cleaned}")
+                return cleaned
 
         soup = BeautifulSoup(html, "html.parser")
         for selector in [
@@ -561,9 +561,20 @@ class WebContentExtractor:
         text_parts = []
         for element in soup.find_all(["p", "li", "h1", "h2", "h3", "h4", "h5", "h6"]):
             text = element.get_text(" ", strip=True)
-            if text and len(text) > 20:
+            if not text:
+                continue
+            if element.name and element.name.startswith("h"):
+                text_parts.append(text)
+            elif len(text) > 20:
                 text_parts.append(text)
         return self._clean_text("\n".join(text_parts))
+
+    def _first_heading(self, html: str) -> str:
+        soup = BeautifulSoup(html, "html.parser")
+        heading = soup.find("h1")
+        if heading is None:
+            return ""
+        return heading.get_text(" ", strip=True)
 
     def _clean_text(self, text: str) -> str:
         text = re.sub(r"\s+", " ", text).strip()
@@ -805,7 +816,7 @@ class CitationBuilder:
             published_date = source.get("published_date")
             line = f"{index}. {site_name} - {title}"
             if url:
-                line = f"{line}\n[{url}]({url})"
+                line = f"{line}\n[Open source]({url})"
             if published_date:
                 line = f"{line}\nPublished: {published_date}"
             lines.append(line)
@@ -850,7 +861,7 @@ class WebSearchPipeline:
             if cached is not None:
                 cached_at, context, citations = cached
                 if time.monotonic() - cached_at <= 15 * 60:
-                    return context, citations, EvidenceValidationResult(supported=True, reason="cached evidence", source_count=1)
+                    return context, citations, EvidenceValidationResult(supported=True, reason="cached evidence", source_count=len(citations))
 
         classification = self._decision_engine.classify(query)
         if not classification.requires_search and not self._decision_engine.should_search(query):
@@ -922,10 +933,20 @@ class WebSearchPipeline:
                 self._cache[normalized_query] = (time.monotonic(), "I couldn't verify this from reliable sources.", [])
             return "I couldn't verify this from reliable sources.", [], validation
 
-        if normalized_query:
-            self._cache[normalized_query] = (time.monotonic(), "I couldn't verify this from reliable sources.", [])
         self._audit_log.append({"event": "search_failed", "query": query, "reason": "no evidence after retries"})
         return "I couldn't verify this from reliable sources.", [], EvidenceValidationResult(supported=False, reason="no evidence after retries")
 
     def _normalize_query(self, query: str) -> str:
         return re.sub(r"\s+", " ", query.strip().lower())
+
+
+
+
+
+
+
+
+
+
+
+
