@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import time
 from collections.abc import AsyncIterator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Any
 
 from fastapi import HTTPException
 
@@ -15,13 +17,37 @@ from app.memory.manager import PlaceholderMemoryManager
 from app.monitoring.service import MonitoringService
 from app.web.search import SearXNGClient, WebSearchPipeline
 
+
 logger = get_logger(__name__)
+
+
+@dataclass(slots=True)
+class RequestContext:
+    """
+    Metadata container for each AI request.
+    Allows future routing, validation and analytics.
+    """
+
+    conversation_id: str | None
+    user_message: str
+    started_at: float = field(default_factory=time.perf_counter)
+
+    intent: str | None = None
+    requires_web: bool = False
+    requires_memory: bool = False
+
+    def latency(self) -> float:
+        return round(
+            time.perf_counter() - self.started_at,
+            4,
+        )
 
 
 @dataclass
 class ChatService:
     orchestrator: ConversationOrchestrator
     monitoring_service: MonitoringService | None = None
+
 
     @classmethod
     def from_settings(
@@ -33,42 +59,182 @@ class ChatService:
         web_search_client: SearXNGClient | None = None,
         monitoring_service: MonitoringService | None = None,
     ) -> "ChatService":
+
+        logger.info(
+            "initializing_chat_service"
+        )
+
         provider = OllamaProvider(settings)
-        client = web_search_client or SearXNGClient(settings.searxng_base_url)
-        pipeline = WebSearchPipeline(search_client=client)
+
+        search_client = (
+            web_search_client
+            or SearXNGClient(
+                settings.searxng_base_url
+            )
+        )
+
+        search_pipeline = WebSearchPipeline(
+            search_client=search_client
+        )
+
+
         orchestrator = ConversationOrchestrator(
             llm_provider=provider,
             settings=settings,
             history_store=history_store,
             memory_manager=memory_manager,
-            web_search_client=client,
-            web_search_pipeline=pipeline,
+            web_search_client=search_client,
+            web_search_pipeline=search_pipeline,
             monitoring_service=monitoring_service,
         )
-        return cls(orchestrator=orchestrator, monitoring_service=monitoring_service)
+
+
+        return cls(
+            orchestrator=orchestrator,
+            monitoring_service=monitoring_service,
+        )
+
 
     async def stream_completion(
         self,
         request: ChatCompletionRequest,
     ) -> AsyncIterator[ChatCompletionChunk]:
+
+
         if not request.messages:
-            raise HTTPException(status_code=400, detail="At least one message is required")
+            raise HTTPException(
+                status_code=400,
+                detail="At least one message is required",
+            )
+
+
+        last_message = request.messages[-1].content
+
+
+        context = RequestContext(
+            conversation_id=request.conversation_id,
+            user_message=last_message,
+        )
+
+
+        logger.info(
+            "chat_request_started",
+            extra={
+                "conversation_id": context.conversation_id,
+                "message_length": len(last_message),
+            },
+        )
+
 
         try:
+
+            if self.monitoring_service:
+
+                await self.monitoring_service.track_event(
+                    "chat_started",
+                    {
+                        "conversation_id": context.conversation_id,
+                    },
+                )
+
+
             async for token in self.orchestrator.stream_response(
-                [message.model_dump() for message in request.messages],
+                [
+                    message.model_dump()
+                    for message in request.messages
+                ],
                 conversation_id=request.conversation_id,
                 system_prompt=request.system_prompt,
                 temperature=request.temperature,
                 max_tokens=request.max_tokens,
                 top_p=request.top_p,
             ):
-                yield ChatCompletionChunk(delta=token, conversation_id=request.conversation_id)
-            yield ChatCompletionChunk(delta="", conversation_id=request.conversation_id, done=True)
-        except Exception as exc:  # pragma: no cover - defensive guard
-            logger.exception("chat_completion_failed", exc_info=exc)
+
+                yield ChatCompletionChunk(
+                    delta=token,
+                    conversation_id=request.conversation_id,
+                )
+
+
+            latency = context.latency()
+
+
+            logger.info(
+                "chat_request_completed",
+                extra={
+                    "latency": latency,
+                    "conversation_id": context.conversation_id,
+                },
+            )
+
+
+            if self.monitoring_service:
+
+                await self.monitoring_service.track_event(
+                    "chat_completed",
+                    {
+                        "conversation_id": context.conversation_id,
+                        "latency": latency,
+                    },
+                )
+
+
             yield ChatCompletionChunk(
-                delta="Aether is currently unavailable; please ensure Ollama is running.",
+                delta="",
+                conversation_id=request.conversation_id,
+                done=True,
+            )
+
+
+        except ConnectionError as exc:
+
+            logger.error(
+                "dependency_connection_failed",
+                exc_info=exc,
+            )
+
+
+            yield ChatCompletionChunk(
+                delta=(
+                    "Aether cannot connect to a required service. "
+                    "Please check Ollama and external services."
+                ),
+                conversation_id=request.conversation_id,
+                done=True,
+            )
+
+
+        except TimeoutError as exc:
+
+            logger.error(
+                "request_timeout",
+                exc_info=exc,
+            )
+
+
+            yield ChatCompletionChunk(
+                delta=(
+                    "Aether response timed out. "
+                    "Please try again."
+                ),
+                conversation_id=request.conversation_id,
+                done=True,
+            )
+
+
+        except Exception as exc:
+
+            logger.exception(
+                "chat_completion_failed",
+                exc_info=exc,
+            )
+
+
+            yield ChatCompletionChunk(
+                delta=(
+                    "Aether encountered an unexpected error. "
+                    "Check system logs for details."
+                ),
                 conversation_id=request.conversation_id,
                 done=True,
             )

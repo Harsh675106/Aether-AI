@@ -111,6 +111,33 @@ class MonitoringService:
             details=details,
         )
 
+    async def track_event(
+        self,
+        event_type: str,
+        details: dict[str, Any] | None = None,
+        *,
+        subsystem: str = "backend",
+        severity: str = "info",
+        category: str = "workflow",
+        title: str | None = None,
+        description: str | None = None,
+        status: str = "running",
+        correlation_id: str | None = None,
+        duration_ms: int | None = None,
+    ) -> dict[str, Any]:
+        return await self.publish_event(
+            event_type=event_type,
+            subsystem=subsystem,
+            severity=severity,
+            category=category,
+            title=title or event_type.replace("_", " ").title(),
+            description=description or f"Monitoring event: {event_type}",
+            status=status,
+            correlation_id=correlation_id,
+            details=details,
+            duration_ms=duration_ms,
+        )
+
     def subscribe(self) -> AsyncIterator[dict[str, Any]]:
         queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=100)
         self._subscribers.add(queue)

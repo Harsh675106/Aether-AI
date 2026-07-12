@@ -18,16 +18,21 @@ class OllamaProvider(LLMProvider):
         self.base_url = settings.ollama_base_url.rstrip("/")
 
     def _build_payload(self, prompt: str, *, metadata: Mapping[str, Any] | None = None) -> dict[str, Any]:
+        metadata_dict = dict(metadata or {})
+        temperature = metadata_dict.get("temperature", self.settings.temperature)
+        top_p = metadata_dict.get("top_p", self.settings.top_p)
+        max_tokens = metadata_dict.get("max_tokens", self.settings.max_tokens)
+
         return {
             "model": self.settings.llm_model,
             "prompt": prompt,
             "stream": True,
             "options": {
-                "temperature": self.settings.temperature,
-                "top_p": self.settings.top_p,
-                "num_predict": self.settings.max_tokens,
+                "temperature": temperature,
+                "top_p": top_p,
+                "num_predict": max_tokens,
             },
-            "metadata": dict(metadata or {}),
+            "metadata": metadata_dict,
         }
 
     async def complete(self, prompt: str, *, metadata: Mapping[str, Any] | None = None) -> str:

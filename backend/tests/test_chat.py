@@ -5,8 +5,10 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.chat.orchestrator import ConversationOrchestrator
+from app.chat.response_generator import ResponseGenerator
 from app.chat.schemas import ChatMessage
 from app.core.settings import Settings
+from app.llm.ollama_provider import OllamaProvider
 from app.main import create_app
 from app.memory.history_store import ConversationHistoryStore
 
@@ -56,6 +58,13 @@ class StubWebSearchPipeline:
             "Search context: the latest release was announced in 2026.",
             [{"title": "Release notes", "url": "https://example.com", "site_name": "Example"}],
         )
+
+
+class LongStreamProvider(FakeProvider):
+    async def stream_complete(self, prompt: str, *, metadata: object | None = None):
+        self.prompts.append(prompt)
+        for index in range(60):
+            yield f"chunk-{index}"
 
 
 def test_chat_streaming_endpoint_returns_sse_events() -> None:
@@ -108,6 +117,53 @@ async def test_orchestrator_uses_history_and_memory(tmp_path: Path) -> None:
     prompt = provider.prompts[-1]
     assert "Earlier question" in prompt
     assert "User likes Python" in prompt
+
+
+def test_response_generator_prompt_requests_markdown_structure_and_emojis() -> None:
+    generator = ResponseGenerator(llm_provider=FakeProvider())
+
+    prompt = generator._system_prompt(None)
+
+    assert "subheadings" in prompt.lower()
+    assert "emojis" in prompt.lower()
+    assert "markdown structure" in prompt.lower()
+
+
+def test_ollama_provider_uses_metadata_generation_options() -> None:
+    provider = OllamaProvider(Settings(max_tokens=128, temperature=0.2, top_p=0.7))
+
+    payload = provider._build_payload(
+        "Explain DBMS",
+        metadata={
+            "max_tokens": 2048,
+            "temperature": 0.9,
+            "top_p": 0.95,
+        },
+    )
+
+    assert payload["options"]["num_predict"] == 2048
+    assert payload["options"]["temperature"] == 0.9
+    assert payload["options"]["top_p"] == 0.95
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_streams_every_chunk_from_llm() -> None:
+    provider = LongStreamProvider()
+    orchestrator = ConversationOrchestrator(
+        llm_provider=provider,
+        settings=Settings(),
+        memory_manager=FakeMemoryManager(),
+    )
+
+    response_chunks = [
+        chunk
+        async for chunk in orchestrator.stream_response(
+            [{"role": "user", "content": "Explain DBMS in detail"}]
+        )
+    ]
+
+    assert len(response_chunks) == 60
+    assert response_chunks[-1] == "chunk-59"
 
 
 @pytest.mark.asyncio

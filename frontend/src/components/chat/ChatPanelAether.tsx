@@ -1,9 +1,10 @@
 import { motion } from "framer-motion";
+import { Sparkles } from "lucide-react";
 import { useState } from "react";
 
 import { AetherLogo } from "@/components/aether/AetherLogo";
 import { LightningLoader } from "@/components/chat/LightningLoader";
-import { MarkdownMessage } from "@/components/chat/MarkdownMessage";
+import { MarkdownMessage } from "@/components/chat/Markdown/MarkdownMessage";
 import { useChat } from "@/hooks/useChat";
 
 export function ChatPanelAether() {
@@ -65,23 +66,38 @@ flex-col gap-3 md:flex lg:left-6 lg:w-[52rem] ">
                     Ask Aether anything and the response will stream in live.
                   </div>
                 )}
-                <div className="flex flex-col gap-2 ">
-                  {messages.map((message) => (
-                    <div
-                      key={message.id}
-                      className={`max-w-[90%] rounded-[1.25rem] px-3 py-2 text-sm text-pretty ${message.role === "user" ? "ml-auto bg-sky-400/20 text-sky-50" : "bg-white/10 text-slate-100"}`}
-                    >
-                      {message.role === "assistant" ? (
-                        message.text ? (
-                          <MarkdownMessage content={message.text} />
-                        ) : isStreaming ? (
-                          <LightningLoader />
-                        ) : null
-                      ) : (
-                        message.text
-                      )}
-                    </div>
-                  ))}
+                <div className="flex flex-col gap-3">
+                  {messages.map((message) => {
+                    const isAssistant = message.role === "assistant";
+
+                    return (
+                      <div
+                        key={message.id}
+                        className={`flex max-w-[92%] flex-col gap-2 rounded-[1.35rem] border px-3.5 py-3 text-sm shadow-[0_0_30px_rgba(56,189,248,0.08)] backdrop-blur-sm ${isAssistant ? "mr-auto border-white/10 bg-[rgba(255,255,255,0.09)] text-slate-100" : "ml-auto border-sky-300/20 bg-sky-400/20 text-sky-50"}`}
+                      >
+                        {isAssistant ? (
+                          <>
+                            <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.3em] text-sky-200/70">
+                              <Sparkles className="h-3.5 w-3.5 text-sky-300" />
+                              Aether
+                            </div>
+                            {message.text ? (
+                              <MarkdownMessage content={message.text} />
+                            ) : isStreaming ? (
+                              <div className="flex items-center gap-2 text-slate-200/90">
+                                <LightningLoader />
+                                <span className="text-xs uppercase tracking-[0.2em] text-slate-300">
+                                  Thinking...
+                                </span>
+                              </div>
+                            ) : null}
+                          </>
+                        ) : (
+                          <p className="whitespace-pre-wrap leading-7 text-sky-50/95">{message.text}</p>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
                 {error ? <p className="mt-3 text-sm text-rose-300">{error}</p> : null}
               </div>

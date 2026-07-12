@@ -50,6 +50,19 @@ def test_monitoring_snapshot_contains_only_events() -> None:
     assert "stats" not in snapshot
 
 
+@pytest.mark.asyncio
+async def test_monitoring_service_track_event_wrapper_emits_payload() -> None:
+    service = MonitoringService()
+
+    payload = await service.track_event(
+        "chat_started",
+        {"conversation_id": "frontend-chat"},
+    )
+
+    assert payload["event_type"] == "chat_started"
+    assert payload["details"]["conversation_id"] == "frontend-chat"
+
+
 def test_monitoring_websocket_emits_initial_event() -> None:
     app = create_app()
 

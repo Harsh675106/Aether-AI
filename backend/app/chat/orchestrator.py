@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import time
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -18,7 +19,14 @@ from app.core.settings import Settings
 from app.memory.history_store import ConversationHistoryStore
 from app.memory.manager import PlaceholderMemoryManager
 from app.monitoring.service import MonitoringService
-from app.web.search import CitationBuilder, EvidenceValidationResult, SearXNGClient, WebContentExtractor, WebSearchPipeline
+from app.chat.confidence import ResponseConfidenceAnalyzer
+from app.web.search import (
+    CitationBuilder,
+    EvidenceValidationResult,
+    SearXNGClient,
+    WebContentExtractor,
+    WebSearchPipeline,
+)
 
 logger = get_logger(__name__)
 
@@ -41,7 +49,11 @@ class FallbackManager:
         limit: int = 5,
     ) -> tuple[str, list[dict[str, Any]], EvidenceValidationResult]:
         if pipeline is None:
-            return "", [], EvidenceValidationResult(supported=False, reason="web search not configured")
+            return (
+                "",
+                [],
+                EvidenceValidationResult(supported=False, reason="web search not configured"),
+            )
 
         last_error = "search failed"
         for _ in range(2):
@@ -49,10 +61,14 @@ class FallbackManager:
                 if hasattr(pipeline, "run_with_evidence"):
                     return await pipeline.run_with_evidence(query, limit=limit)
                 context, citations = await pipeline.run(query, limit=limit)
-                return context, citations, EvidenceValidationResult(
-                    supported=bool(context),
-                    reason="legacy pipeline fallback",
-                    source_count=len(citations),
+                return (
+                    context,
+                    citations,
+                    EvidenceValidationResult(
+                        supported=bool(context),
+                        reason="legacy pipeline fallback",
+                        source_count=len(citations),
+                    ),
                 )
             except Exception as exc:  # pragma: no cover - defensive guard
                 last_error = str(exc)
@@ -75,6 +91,8 @@ class ConversationOrchestrator:
         web_search_pipeline: WebSearchPipeline | None = None,
         search_decision_engine: object | None = None,
         monitoring_service: MonitoringService | None = None,
+        confidence_threshold: float = 0.55,
+        max_history_messages: int = 20,
     ) -> None:
         self._llm_provider = llm_provider
         self._memory_manager = memory_manager or PlaceholderMemoryManager()
@@ -82,8 +100,11 @@ class ConversationOrchestrator:
         self._history_store = history_store
         self._web_search_client = web_search_client
         self._web_content_extractor = web_content_extractor or WebContentExtractor()
-        self._web_search_pipeline = web_search_pipeline or WebSearchPipeline(search_client=self._web_search_client)
+        self._web_search_pipeline = web_search_pipeline or WebSearchPipeline(
+            search_client=self._web_search_client
+        )
         self._monitoring_service = monitoring_service
+        self._confidence_analyzer = ResponseConfidenceAnalyzer()
 
         self._intent_classifier = IntentClassifier()
         self._routing_engine = RoutingEngine()
@@ -92,6 +113,8 @@ class ConversationOrchestrator:
         self._fallback_manager = FallbackManager()
         self._monitoring_logger = MonitoringLogger(monitoring_service)
         self._citation_builder = CitationBuilder()
+        self._confidence_threshold = confidence_threshold
+        self._max_history_messages = max_history_messages
 
     def decide(self, messages: list[dict[str, str]]) -> OrchestrationDecision:
         """Compatibility shim for existing tests and callers."""
@@ -99,7 +122,9 @@ class ConversationOrchestrator:
         has_history = len(messages) > 1
         intent = self._intent_classifier.classify(user_query, has_history=has_history)
         decision = self._routing_engine.decide(intent)
-        return OrchestrationDecision(use_memory=decision.use_memory, use_web_search=decision.use_search)
+        return OrchestrationDecision(
+            use_memory=decision.use_memory, use_web_search=decision.use_search
+        )
 
     async def stream_response(
         self,
@@ -112,7 +137,9 @@ class ConversationOrchestrator:
         top_p: float | None = None,
     ) -> AsyncIterator[str]:
         started_at = self._monitoring_logger.start_timer()
-        await self._monitoring_logger.request_received(conversation_id=conversation_id, message_count=len(messages))
+        await self._monitoring_logger.request_received(
+            conversation_id=conversation_id, message_count=len(messages)
+        )
 
         user_query = self._last_user_message(messages)
         history_messages = self._load_history(messages, conversation_id)
@@ -127,6 +154,8 @@ class ConversationOrchestrator:
             reason=decision.reason,
         )
 
+        metadata.details["routing_confidence"] = decision.confidence
+
         response_parts: list[str] = []
         citations: list[dict[str, Any]] = []
 
@@ -135,10 +164,20 @@ class ConversationOrchestrator:
             if direct_response is not None:
                 response_parts.append(direct_response)
                 yield direct_response
+                await self._monitoring_logger.response_ready(
+                    conversation_id=conversation_id,
+                    metadata=metadata,
+                )
                 return
 
-            memory_result = await self._relevant_memory.retrieve(user_query, enabled=decision.use_memory, limit=3)
-            metadata.memory = f"Used ({memory_result.result_count})" if memory_result.used else f"Skipped ({memory_result.skipped_reason})"
+            memory_result = await self._relevant_memory.retrieve(
+                user_query, enabled=decision.use_memory, limit=5
+            )
+            metadata.memory = (
+                f"Used ({memory_result.result_count})"
+                if memory_result.used
+                else f"Skipped ({memory_result.skipped_reason})"
+            )
 
             web_context = ""
             if decision.use_search:
@@ -151,7 +190,9 @@ class ConversationOrchestrator:
                 metadata.sources = self._unique_source_count(citations)
                 metadata.details["search_validation"] = validation.reason
             else:
-                validation = EvidenceValidationResult(supported=False, reason="search skipped by router")
+                validation = EvidenceValidationResult(
+                    supported=False, reason="search skipped by router"
+                )
 
             if decision.use_search and not validation.supported:
                 fallback = "I could not verify this from reliable current sources, so I won't guess. Please try again when search is available or ask for a non-current explanation."
@@ -161,6 +202,7 @@ class ConversationOrchestrator:
 
             metadata.ollama = "Used" if decision.use_ollama else "Skipped"
             if decision.use_ollama:
+                generated_chunks: list[str] = []
                 async for chunk in self._response_generator.stream(
                     GenerationContext(
                         user_query=user_query,
@@ -182,8 +224,75 @@ class ConversationOrchestrator:
                         },
                     )
                 ):
+                    generated_chunks.append(chunk)
                     response_parts.append(chunk)
                     yield chunk
+
+                # Validate generated response confidence
+                generated_response = "".join(generated_chunks).strip()
+                if not generated_response:
+                    logger.warning(
+                        "empty_llm_response"
+                    )
+                    fallback_message = (
+                        "I was unable to generate a response. Please try again."
+                    )
+                    response_parts.append(fallback_message)
+
+                    yield fallback_message
+                    return
+
+                confidence = self._confidence_analyzer.analyze(
+                    generated_response,
+                    query=user_query,
+                    citations=len(citations),
+                )
+                metadata.details.update(
+                    {
+                        "response_confidence": confidence.score,
+                        "confidence_reason": confidence.reason,
+                        "response_length": len(generated_response),
+                    }
+                )
+
+                # Trigger fallback when Ollama response quality is low
+                if confidence.should_retry and not decision.use_search:
+                    logger.info(
+                        "low_confidence_response_detected",
+                        extra={
+                            "confidence": confidence.score,
+                            "reason": confidence.reason,
+                        },
+                    )
+                    response_parts.clear()
+                    retry_context, retry_citations, retry_validation = (
+                        await self._fallback_manager.search_with_retry(
+                            self._web_search_pipeline,
+                            user_query,
+                            limit=5,
+                        )
+                    )
+
+                    if retry_validation.supported:
+
+                        metadata.search = "Triggered by low confidence"
+                        citations.extend(retry_citations)
+                        async for retry_chunk in self._response_generator.stream(
+                            GenerationContext(
+                                user_query=user_query,
+                                history=history_messages,
+                                memory_context=memory_result.context or None,
+                                web_context=retry_context,
+                                system_prompt=system_prompt,
+                                metadata={
+                                    "conversation_id": conversation_id,
+                                    "intent": intent.category.value,
+                                    "reason": "confidence_fallback",
+                                },
+                            )
+                        ):
+                            response_parts.append(retry_chunk)
+                            yield retry_chunk
 
             unique_citations = self._deduplicate_citations(citations)
             if unique_citations:
@@ -200,9 +309,11 @@ class ConversationOrchestrator:
         finally:
             full_response = "".join(response_parts)
             self._persist_conversation(conversation_id, user_query, full_response)
-            metadata.latency_ms = int((self._monitoring_logger.start_timer() - started_at) * 1000)
+            metadata.latency_ms = int((time.perf_counter() - started_at) * 1000)
             metadata.sources = self._unique_source_count(citations)
-            await self._monitoring_logger.response_ready(conversation_id=conversation_id, metadata=metadata)
+            await self._monitoring_logger.response_ready(
+                conversation_id=conversation_id, metadata=metadata
+            )
 
     def _direct_response(self, category: IntentCategory, query: str) -> str | None:
         if category == IntentCategory.GREETING:
@@ -212,25 +323,50 @@ class ConversationOrchestrator:
         return self._build_current_datetime_response(query)
 
     def _last_user_message(self, messages: list[dict[str, str]]) -> str:
-        return next((message.get("content", "") for message in reversed(messages) if message.get("role") == "user"), "")
+        return next(
+            (
+                message.get("content", "")
+                for message in reversed(messages)
+                if message.get("role") == "user"
+            ),
+            "",
+        )
 
-    def _load_history(self, messages: list[dict[str, str]], conversation_id: str | None) -> list[ChatMessage]:
+    def _load_history(
+        self, messages: list[dict[str, str]], conversation_id: str | None
+    ) -> list[ChatMessage]:
         history: list[ChatMessage] = []
         if conversation_id and self._history_store is not None:
             stored_history = self._history_store.get_conversation(conversation_id) or []
-            history.extend(ChatMessage(role=message["role"], content=message["content"]) for message in stored_history)
+            history.extend(
+                ChatMessage(role=message["role"], content=message["content"])
+                for message in stored_history
+            )
 
-        inline_history = [message for message in messages[:-1] if message.get("role") in {"system", "user", "assistant", "tool"}]
-        history.extend(ChatMessage(role=message["role"], content=message["content"]) for message in inline_history)
-        return history[-20:]
+        inline_history = [
+            message
+            for message in messages[:-1]
+            if message.get("role") in {"system", "user", "assistant", "tool"}
+        ]
+        history.extend(
+            ChatMessage(role=message["role"], content=message["content"])
+            for message in inline_history
+        )
+        return history[-self._max_history_messages:]
 
-    def _resolve_follow_up_query(self, query: str, history: list[ChatMessage], decision: RoutingDecision) -> str:
+    def _resolve_follow_up_query(
+        self, query: str, history: list[ChatMessage], decision: RoutingDecision
+    ) -> str:
         if decision.intent.category != IntentCategory.FOLLOW_UP_QUESTION or not history:
             return query
-        recent = " ".join(message.content for message in history[-4:] if message.role in {"user", "assistant"})
+        recent = " ".join(
+            message.content for message in history[-4:] if message.role in {"user", "assistant"}
+        )
         return f"{recent}\nFollow-up question: {query}"
 
-    def _persist_conversation(self, conversation_id: str | None, user_query: str, assistant_response: str) -> None:
+    def _persist_conversation(
+        self, conversation_id: str | None, user_query: str, assistant_response: str
+    ) -> None:
         if not conversation_id or self._history_store is None or not user_query:
             return
         self._history_store.ensure_conversation(conversation_id, title="conversation")
@@ -275,7 +411,8 @@ class ConversationOrchestrator:
             return True
         has_calendar_word = re.search(r"\b(date|day|time)\b", normalized) is not None
         return has_calendar_word and any(
-            marker in normalized for marker in ("india", "ist", "current", "now", "today", "tomorrow", "yesterday")
+            marker in normalized
+            for marker in ("india", "ist", "current", "now", "today", "tomorrow", "yesterday")
         )
 
     def _build_current_datetime_response(self, query: str) -> str | None:
@@ -307,10 +444,3 @@ class ConversationOrchestrator:
             return f"{prefix} is {target.strftime('%H:%M:%S')} {suffix} on {date_label}."
 
         return f"{label}{zone_label} is {date_label}."
-
-
-
-
-
-
-

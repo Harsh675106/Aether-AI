@@ -36,7 +36,7 @@ class Settings(BaseSettings):
     llm_model: str = Field(default="qwen2.5:7b-instruct", alias="AETHER_LLM_MODEL")
     temperature: float = Field(default=0.2, alias="AETHER_TEMPERATURE")
     top_p: float = Field(default=0.9, alias="AETHER_TOP_P")
-    max_tokens: int = Field(default=512, alias="AETHER_MAX_TOKENS")
+    max_tokens: int = Field(default=2048, alias="AETHER_MAX_TOKENS")
     llm_timeout: int = Field(default=120, alias="AETHER_LLM_TIMEOUT")
 
     @property
