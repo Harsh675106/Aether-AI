@@ -6,7 +6,6 @@ from app.core.settings import Settings
 from app.memory.chroma_manager import ChromaMemoryManager
 from app.memory.history_store import ConversationHistoryStore
 from app.monitoring.service import MonitoringService, get_monitoring_service
-from app.web.search import SearXNGClient, WebContentExtractor
 from app.plugins.manager import PlaceholderPluginManager
 from app.rag.engine import PlaceholderRagEngine
 from app.security.audit_logger import AuditLogger
@@ -15,6 +14,8 @@ from app.security.permission_manager import PermissionManager
 from app.security.secret_manager import SecretManager
 from app.services.system_service import SystemService
 from app.tools.manager import PlaceholderToolManager
+from app.voice.engine import VoiceEngine
+from app.web.search import SearXNGClient, WebContentExtractor
 from app.workflow.engine import PlaceholderWorkflowEngine
 
 
@@ -22,6 +23,13 @@ from app.workflow.engine import PlaceholderWorkflowEngine
 class ApplicationContainer:
     settings: Settings
     _monitoring_service: MonitoringService = field(default_factory=get_monitoring_service, init=False)
+    _voice_engine: VoiceEngine = field(init=False)
+
+    def __post_init__(self) -> None:
+        self._voice_engine = VoiceEngine.from_settings(
+            settings=self.settings,
+            monitoring_service=self.monitoring_service(),
+        )
 
     def system_service(self) -> SystemService:
         return SystemService(settings=self.settings)
@@ -77,3 +85,5 @@ class ApplicationContainer:
     def monitoring_service(self) -> MonitoringService:
         return self._monitoring_service
 
+    def voice_engine(self) -> VoiceEngine:
+        return self._voice_engine

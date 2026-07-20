@@ -1,4 +1,4 @@
-import { motion } from "framer-motion";
+﻿import { motion } from "framer-motion";
 import { Waves } from "lucide-react";
 
 import { useMonitoring } from "@/hooks/useMonitoring";
@@ -36,12 +36,12 @@ export function MonitorPanel() {
           </div>
 
           <div
-  className="h-full min-h-0 overflow-y-auto pr-3 font-mono
+            className="h-full min-h-0 overflow-y-auto pr-3 font-mono
     [&::-webkit-scrollbar]:w-1.5
     [&::-webkit-scrollbar-thumb]:rounded-full
     [&::-webkit-scrollbar-thumb]:bg-cyan-400/50
     [&::-webkit-scrollbar-track]:bg-transparent"
->
+          >
             {events.length === 0 ? (
               <div className="flex h-full items-center justify-center">
                 <div className="flex items-center gap-4">

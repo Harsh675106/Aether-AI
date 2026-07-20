@@ -1,22 +1,15 @@
-import { useEffect, useMemo, useState } from "react";
+﻿import { useEffect, useMemo, useState } from "react";
+
+import type { MonitoringEvent } from "@/types/monitoring";
+import { subscribeVoiceMonitoringEvents } from "@/voice/monitoring";
 
 const API_BASE = import.meta.env.VITE_AETHER_API_URL ?? "http://localhost:8001/api/v1";
-const WS_URL = (import.meta.env.VITE_AETHER_WS_URL ?? API_BASE.replace(/^http/, "ws").replace(/\/api\/v1$/, "/api/v1/monitoring/ws"));
+const WS_URL = import.meta.env.VITE_AETHER_WS_URL ?? API_BASE.replace(/^http/, "ws").replace(/\/api\/v1$/, "/api/v1/monitoring/ws");
 
-export type MonitoringEvent = {
-  event_id: string;
-  event_type: string;
-  subsystem: string;
-  severity: string;
-  category: string;
-  title: string;
-  description: string;
-  status: string;
-  timestamp: number;
-  correlation_id?: string | null;
-  details?: Record<string, unknown>;
-  duration_ms?: number | null;
-};
+function appendEvent(current: MonitoringEvent[], incoming: MonitoringEvent): MonitoringEvent[] {
+  const exists = current.some((item) => item.event_id === incoming.event_id);
+  return exists ? current : [...current, incoming].slice(-80);
+}
 
 export function useMonitoring() {
   const [events, setEvents] = useState<MonitoringEvent[]>([]);
@@ -24,26 +17,19 @@ export function useMonitoring() {
   useEffect(() => {
     const socket = new WebSocket(WS_URL);
 
-    socket.onopen = () => {
-      setEvents((current) => current.length > 0 ? current : []);
-    };
-
     socket.onmessage = (event) => {
       try {
         const payload = JSON.parse(event.data);
         if (payload.type === "snapshot") {
           const snapshotEvents = Array.isArray(payload.payload?.events) ? payload.payload.events : [];
-          setEvents(snapshotEvents);
+          setEvents(snapshotEvents.slice(-80));
           return;
         }
 
         if (payload.type === "event") {
           const incomingEvent = payload.payload;
           if (incomingEvent?.event_id) {
-            setEvents((current) => {
-              const exists = current.some((item) => item.event_id === incomingEvent.event_id);
-              return exists ? current : [incomingEvent, ...current].slice(0, 80);
-            });
+            setEvents((current) => appendEvent(current, incomingEvent));
           }
         }
       } catch {
@@ -55,23 +41,31 @@ export function useMonitoring() {
       setEvents((current) =>
         current.length > 0
           ? current
-          : [{
-              event_id: "monitoring-error",
-              event_type: "connection",
-              subsystem: "frontend",
-              severity: "warning",
-              category: "monitoring",
-              title: "Monitoring unavailable",
-              description: "Unable to connect to the live monitoring stream.",
-              status: "error",
-              timestamp: Date.now(),
-            }]
+          : [
+              {
+                event_id: "monitoring-error",
+                event_type: "connection",
+                subsystem: "frontend",
+                severity: "warning",
+                category: "monitoring",
+                title: "Monitoring unavailable",
+                description: "Unable to connect to the live monitoring stream.",
+                status: "error",
+                timestamp: Date.now(),
+              },
+            ]
       );
     };
 
     return () => {
       socket.close();
     };
+  }, []);
+
+  useEffect(() => {
+    return subscribeVoiceMonitoringEvents((event) => {
+      setEvents((current) => appendEvent(current, event));
+    });
   }, []);
 
   return useMemo(

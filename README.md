@@ -6,11 +6,8 @@ Aether AI is a production-oriented foundation for an autonomous desktop AI syste
 
 - `frontend/` - Tauri, React, TypeScript, Vite, TailwindCSS, shadcn-style UI primitives, Zustand, React Router, React Query, Framer Motion, Monaco-ready structure.
 - `backend/` - Python 3.13, FastAPI, Pydantic v2, SQLAlchemy, Alembic, async service boundaries, and clean architecture placeholders.
-- `shared/` - Cross-runtime contracts and schemas.
-- `config/` - Environment configuration templates.
 - `docker/` - Container assets for local infrastructure.
 - `docs/` - Architecture, development, security, and operations notes.
-- `scripts/` - Automation entry points for development and CI.
 
 ## Quick Start
 
@@ -28,8 +25,9 @@ if (Test-Path .venv) { Remove-Item -Recurse -Force .venv }
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
-python -m pip install -e ".[dev]"
-npm install --prefix frontend
+python -m pip install -e "./backend[dev]"
+cd frontend
+npm install
 ```
 
 Pull the default model used by the backend:
