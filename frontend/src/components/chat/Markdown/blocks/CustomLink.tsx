@@ -1,10 +1,30 @@
 import React from "react";
 import { ExternalLink } from "lucide-react";
 import { motion } from "framer-motion";
+import { open } from "@tauri-apps/plugin-shell";
 
 interface CustomLinkProps {
   href?: string;
   children: React.ReactNode;
+}
+
+async function openExternalLink(href?: string) {
+  if (!href) {
+    return;
+  }
+
+  try {
+    if (typeof window !== "undefined" && "__TAURI_INTERNALS__" in window) {
+      await open(href);
+      return;
+    }
+
+    window.open(href, "_blank", "noopener,noreferrer");
+  } catch {
+    if (typeof window !== "undefined") {
+      window.open(href, "_blank", "noopener,noreferrer");
+    }
+  }
 }
 
 export const CustomLink = React.memo(
@@ -14,6 +34,10 @@ export const CustomLink = React.memo(
         href={href}
         target="_blank"
         rel="noopener noreferrer"
+        onClick={(event) => {
+          event.preventDefault();
+          void openExternalLink(href);
+        }}
         whileHover={{ y: -1 }}
         whileTap={{ scale: 0.98 }}
         className="

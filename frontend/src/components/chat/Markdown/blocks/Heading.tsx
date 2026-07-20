@@ -1,7 +1,8 @@
 import React from "react";
 
 import { AnimatedBlock } from "./AnimatedBlock";
-import { getCalloutType } from "../utils";
+import { CalloutBlock } from "./CalloutBlock";
+import { extractTextContent, getCalloutType } from "../utils";
 
 interface CustomHeadingProps {
   level: number;
@@ -10,14 +11,7 @@ interface CustomHeadingProps {
 
 export const CustomHeading = React.memo(
   ({ level, children }: CustomHeadingProps) => {
-    let textContent = "";
-
-    React.Children.forEach(children, (child) => {
-      if (typeof child === "string") {
-        textContent += child;
-      }
-    });
-
+    const textContent = extractTextContent(children);
     const callout = getCalloutType(textContent);
 
     if (callout) {
@@ -25,44 +19,11 @@ export const CustomHeading = React.memo(
       const Icon = config.icon;
 
       return (
-        <AnimatedBlock>
-          <div
-            className={`
-              group relative my-7 overflow-hidden
-              rounded-2xl
-              border ${config.border}
-              ${config.bg}
-              px-5 py-4
-              backdrop-blur-xl
-              shadow-[0_8px_30px_rgba(0,0,0,0.18)]
-              transition-all duration-300
-              hover:border-white/20
-            `}
-          >
-            {/* Accent Glow */}
-            <div
-              className={`absolute left-0 top-0 h-full w-1 rounded-full ${config.bg}`}
-            />
-
-            <div className="flex items-center gap-3">
-              <Icon
-                className={`h-5 w-5 shrink-0 transition-transform duration-300 group-hover:scale-110 ${config.accent}`}
-              />
-
-              <span
-                className={`
-                  text-sm
-                  font-semibold
-                  uppercase
-                  tracking-[0.18em]
-                  ${config.accent}
-                `}
-              >
-                {textContent}
-              </span>
-            </div>
-          </div>
-        </AnimatedBlock>
+        <CalloutBlock title={textContent} config={config}>
+          <span className={`text-sm font-semibold uppercase tracking-[0.18em] ${config.accent}`}>
+            {textContent}
+          </span>
+        </CalloutBlock>
       );
     }
 

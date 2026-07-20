@@ -31,6 +31,13 @@ describe("MarkdownMessage", () => {
     expect(link).toHaveAttribute("href", "https://example.com/docs");
     expect(link).toHaveAttribute("target", "_blank");
   });
+
+  it("renders callout-style paragraphs using the shared callout configuration", () => {
+    render(<MarkdownMessage content="Warning: This needs attention." />);
+
+    expect(screen.getByRole("note", { name: /warning/i })).toBeInTheDocument();
+    expect(screen.getAllByText(/this needs attention/i).length).toBeGreaterThan(0);
+  });
 });
 
 

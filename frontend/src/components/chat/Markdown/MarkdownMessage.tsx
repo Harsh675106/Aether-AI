@@ -11,7 +11,9 @@ import { CustomLink } from "./blocks/CustomLink";
 import { CustomImage } from "./blocks/CustomImage";
 
 import { CodeBlock } from "./blocks/CodeBlock";
+import { CalloutBlock } from "./blocks/CalloutBlock";
 import type { MarkdownMessageProps } from "./types";
+import { getCalloutType } from "./utils";
 
 function prepareContentForMarkdown(content: string) {
   if (!content) {
@@ -64,21 +66,35 @@ export function MarkdownMessage({ content }: MarkdownMessageProps) {
         return <CodeBlock className={className}>{children}</CodeBlock>;
       },
 
-      p: ({ children }: any) => (
-        <AnimatedBlock>
-          <p
-            className="
+      p: ({ children, node }: any) => {
+        const textContent = node?.children?.map((child: any) => child.value ?? "").join("") ?? "";
+        const callout = getCalloutType(textContent);
+
+        if (callout) {
+          const { config } = callout;
+          return (
+            <CalloutBlock title={textContent} config={config}>
+              <p className={`text-sm leading-7 ${config.text}`}>{children}</p>
+            </CalloutBlock>
+          );
+        }
+
+        return (
+          <AnimatedBlock>
+            <p
+              className="
     my-4
     text-[15.5px]
     leading-8
     text-slate-200/95
     [text-wrap:pretty]
   "
-          >
-            {children}
-          </p>
-        </AnimatedBlock>
-      ),
+            >
+              {children}
+            </p>
+          </AnimatedBlock>
+        );
+      },
 
       ul: ({ children }: any) => (
         <AnimatedBlock>
