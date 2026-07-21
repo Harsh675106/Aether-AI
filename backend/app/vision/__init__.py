@@ -1,2 +1,0 @@
-"""Vision engine interfaces."""
-
