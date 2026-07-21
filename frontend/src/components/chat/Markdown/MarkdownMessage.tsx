@@ -83,6 +83,8 @@ function getASTTextContent(node: any): string {
   return "";
 }
 
+const CalloutContext = React.createContext<boolean>(false);
+
 export function MarkdownMessage({ content }: MarkdownMessageProps) {
   const preparedContent = useMemo(() => prepareContentForMarkdown(content), [content]);
 
@@ -121,15 +123,18 @@ export function MarkdownMessage({ content }: MarkdownMessageProps) {
       },
 
       p: ({ children, node }: any) => {
+        const isInsideCallout = React.useContext(CalloutContext);
         const textContent = getASTTextContent(node);
-        const callout = getCalloutType(textContent);
+        const callout = !isInsideCallout ? getCalloutType(textContent) : null;
 
         if (callout) {
           const { config, title, type } = callout;
           const cleanChildren = stripCalloutPrefixFromReactNode(children, type);
           return (
             <CalloutBlock title={title} config={config}>
-              <p className={`text-sm leading-7 ${config.text}`}>{cleanChildren}</p>
+              <CalloutContext.Provider value={true}>
+                <p className={`text-sm leading-7 ${config.text}`}>{cleanChildren}</p>
+              </CalloutContext.Provider>
             </CalloutBlock>
           );
         }
@@ -274,7 +279,24 @@ border-sky-500/20
 
       td: ({ children }: any) => <td className="px-4 py-3 text-sm text-slate-300">{children}</td>,
 
-      blockquote: ({ children }: any) => <CustomBlockquote>{children}</CustomBlockquote>,
+      blockquote: ({ children, node }: any) => {
+        const textContent = getASTTextContent(node);
+        const callout = getCalloutType(textContent);
+
+        if (callout) {
+          const { config, title, type } = callout;
+          const cleanChildren = stripCalloutPrefixFromReactNode(children, type);
+          return (
+            <CalloutBlock title={title} config={config}>
+              <CalloutContext.Provider value={true}>
+                {cleanChildren}
+              </CalloutContext.Provider>
+            </CalloutBlock>
+          );
+        }
+
+        return <CustomBlockquote>{children}</CustomBlockquote>;
+      },
 
       a: ({ href, children }: any) => <CustomLink href={href}>{children}</CustomLink>,
 

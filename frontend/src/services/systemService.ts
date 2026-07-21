@@ -5,7 +5,6 @@ export interface SystemSnapshot {
   model: string;
   memory: string;
   database: string;
-  voice: string;
   vision: string;
   internet: string;
   tools: string;

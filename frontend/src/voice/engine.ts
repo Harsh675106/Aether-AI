@@ -1,6 +1,7 @@
 import { browserSpeechRecognitionProvider, browserSpeechSynthesisProvider, RegexWakeWordDetector } from "./providers";
 import { publishVoiceMonitoringEvent } from "./monitoring";
 import { formatMarkdownForSpeech } from "./formatter";
+import { detectLanguageFromText, MULTILINGUAL_CONFIGS, type LanguageConfig } from "./languages";
 import type { VoiceEngineOptions, VoiceState } from "./types";
 
 const DEFAULT_WAKE_WORD = "Aether";
@@ -35,12 +36,14 @@ export class AetherVoiceEngine {
   private conversationId: string;
   private streamedResponse = "";
   private stopRequested = false;
+  private activeLanguage: LanguageConfig;
+  private silenceTimer: number | null = null;
 
   constructor(options: VoiceEngineOptions) {
     this.chatTransport = options.chatTransport;
     this.settings = {
       wakeWord: options.wakeWord ?? DEFAULT_WAKE_WORD,
-      language: options.language ?? "en-US",
+      language: options.language ?? "en-IN",
       speechRate: options.speechRate ?? 1,
       speechPitch: options.speechPitch ?? 1,
       speechVolume: options.speechVolume ?? 1,
@@ -51,6 +54,10 @@ export class AetherVoiceEngine {
       conversationId: options.conversationId ?? DEFAULT_CONVERSATION_ID,
     };
     this.conversationId = this.settings.conversationId;
+    this.activeLanguage =
+      MULTILINGUAL_CONFIGS.find((c) => c.code.toLowerCase() === this.settings.language.toLowerCase()) ||
+      MULTILINGUAL_CONFIGS[0];
+
     this.state = {
       phase: "idle",
       sessionId: null,
@@ -63,8 +70,35 @@ export class AetherVoiceEngine {
       listening: false,
       active: false,
       speaking: false,
+      detectedLanguage: this.activeLanguage.name,
+      detectedLanguageCode: this.activeLanguage.code,
       updatedAt: Date.now(),
     };
+  }
+
+  private updateDetectedLanguage(config: LanguageConfig, forceEvent = false): void {
+    const previousLang = this.activeLanguage.name;
+    const isChanged = this.activeLanguage.code !== config.code;
+    this.activeLanguage = config;
+    this.updateState({
+      detectedLanguage: config.name,
+      detectedLanguageCode: config.code,
+    });
+    if (isChanged || forceEvent) {
+      this.publishEvent(
+        "voice_language_detected",
+        "Language Detected",
+        `Voice language detected as ${config.name} (${config.code}).`,
+        "info",
+        "running",
+        {
+          language: config.name,
+          code: config.code,
+          session_id: this.sessionId,
+          conversation_id: this.conversationId,
+        }
+      );
+    }
   }
 
   updateChatTransport(chatTransport: VoiceEngineOptions["chatTransport"]): void {
@@ -140,6 +174,7 @@ export class AetherVoiceEngine {
     this.running = false;
     this.stopRequested = true;
     this.paused = true;
+    this.clearSilenceTimer();
     this.speechSynthesis.stop();
     this.stopRecognition();
     this.updateState({
@@ -207,6 +242,10 @@ export class AetherVoiceEngine {
         void this.handleRecognitionResult(transcript, isFinal);
       },
       onError: (message) => {
+        const err = message.toLowerCase();
+        if (err.includes("aborted") || err.includes("no-speech")) {
+          return;
+        }
         void this.handleError(message, { reason: "speech_recognition" });
       },
     });
@@ -241,6 +280,13 @@ export class AetherVoiceEngine {
     this.recognitionSession = null;
   }
 
+  private clearSilenceTimer(): void {
+    if (this.silenceTimer !== null) {
+      window.clearTimeout(this.silenceTimer);
+      this.silenceTimer = null;
+    }
+  }
+
   private async handleRecognitionResult(transcript: string, isFinal: boolean): Promise<void> {
     if (!this.running || this.stopRequested) {
       return;
@@ -251,7 +297,11 @@ export class AetherVoiceEngine {
       return;
     }
 
+    const detected = detectLanguageFromText(normalizedTranscript);
+    this.updateDetectedLanguage(detected);
+
     this.updateState({ transcript: normalizedTranscript });
+    this.clearSilenceTimer();
 
     if (!this.state.active) {
       if (!this.wakeWordDetector.matches(normalizedTranscript, this.settings.wakeWord)) {
@@ -295,6 +345,23 @@ export class AetherVoiceEngine {
         conversation_id: this.conversationId,
       });
       await this.handleSpokenCommand(normalizedTranscript);
+      return;
+    }
+
+    // Debounce end-of-speech detection for continuous speech pauses to prevent cutting off the user mid-sentence:
+    if (this.state.active) {
+      this.silenceTimer = window.setTimeout(() => {
+        this.silenceTimer = null;
+        if (this.running && this.state.active && this.state.transcript) {
+          const currentTranscript = this.state.transcript;
+          this.publishEvent("voice_speech_recognized", "Speech Recognized", `Recognized speech: "${currentTranscript}"`, "info", "running", {
+            transcript: currentTranscript,
+            session_id: this.sessionId,
+            conversation_id: this.conversationId,
+          });
+          void this.handleSpokenCommand(currentTranscript);
+        }
+      }, this.settings.silenceTimeoutMs);
     }
   }
 
@@ -309,6 +376,10 @@ export class AetherVoiceEngine {
       return;
     }
 
+    // Perform fresh language detection for every voice interaction query
+    const queryLanguage = detectLanguageFromText(cleanedTranscript);
+    this.updateDetectedLanguage(queryLanguage, true);
+
     this.streamedResponse = "";
     this.updateState({
       phase: "processing_speech",
@@ -317,9 +388,13 @@ export class AetherVoiceEngine {
       listening: false,
       active: true,
       speaking: false,
+      detectedLanguage: queryLanguage.name,
+      detectedLanguageCode: queryLanguage.code,
     });
     this.publishEvent("voice_processing_speech", "Processing Speech", "Speech input is being prepared for the chatbot.", "info", "running", {
       transcript: cleanedTranscript,
+      detected_language: queryLanguage.name,
+      detected_language_code: queryLanguage.code,
       session_id: this.sessionId,
       conversation_id: this.conversationId,
     });
@@ -330,6 +405,8 @@ export class AetherVoiceEngine {
       this.updateState({ phase: "sending_to_chatbot" });
       this.publishEvent("voice_sending_to_chatbot", "Sending to Chatbot", "User speech is being routed through the AI chat pipeline.", "info", "running", {
         transcript: cleanedTranscript,
+        detected_language: queryLanguage.name,
+        detected_language_code: queryLanguage.code,
         session_id: this.sessionId,
         conversation_id: this.conversationId,
       });
@@ -342,6 +419,8 @@ export class AetherVoiceEngine {
             this.publishEvent("voice_receiving_ai_response", "Receiving AI Response", "The chatbot is streaming a spoken answer.", "info", "running", {
               session_id: this.sessionId,
               conversation_id: this.conversationId,
+              detected_language: queryLanguage.name,
+              detected_language_code: queryLanguage.code,
             });
           }
 
@@ -356,6 +435,8 @@ export class AetherVoiceEngine {
         this.publishEvent("voice_completed", "Playback Completed", "No speech response was generated.", "info", "complete", {
           session_id: this.sessionId,
           conversation_id: this.conversationId,
+          detected_language: queryLanguage.name,
+          detected_language_code: queryLanguage.code,
         });
         if (this.running && this.settings.autoRestart && this.settings.continuousListening) {
           await this.restartListeningLoop();
@@ -369,10 +450,14 @@ export class AetherVoiceEngine {
         phase: "converting_to_speech",
         response: finalResponse,
         speaking: false,
+        detectedLanguage: queryLanguage.name,
+        detectedLanguageCode: queryLanguage.code,
       });
       this.publishEvent("voice_converting_to_speech", "Converting Text to Speech", "Preparing the AI response for playback.", "info", "running", {
         response_length: finalResponse.length,
         spoken_length: spokenText.length,
+        detected_language: queryLanguage.name,
+        detected_language_code: queryLanguage.code,
         session_id: this.sessionId,
         conversation_id: this.conversationId,
       });
@@ -381,12 +466,14 @@ export class AetherVoiceEngine {
       this.publishEvent("voice_speaking", "Speaking Response", "The response is being spoken aloud.", "info", "running", {
         response_length: finalResponse.length,
         spoken_length: spokenText.length,
+        detected_language: queryLanguage.name,
+        detected_language_code: queryLanguage.code,
         session_id: this.sessionId,
         conversation_id: this.conversationId,
       });
 
       await this.speechSynthesis.speak(spokenText, {
-        language: this.settings.language,
+        language: queryLanguage.code,
         voiceName: this.settings.voiceName,
         rate: this.settings.speechRate,
         pitch: this.settings.speechPitch,
@@ -397,6 +484,8 @@ export class AetherVoiceEngine {
       this.publishEvent("voice_completed", "Playback Completed", "Voice response playback finished.", "info", "complete", {
         session_id: this.sessionId,
         conversation_id: this.conversationId,
+        detected_language: queryLanguage.name,
+        detected_language_code: queryLanguage.code,
       });
 
       if (this.running && this.settings.autoRestart && this.settings.continuousListening) {
@@ -432,6 +521,7 @@ export class AetherVoiceEngine {
 
   private pauseRecognition(): void {
     this.paused = true;
+    this.clearSilenceTimer();
     this.stopRecognition();
   }
 
@@ -439,6 +529,7 @@ export class AetherVoiceEngine {
     this.running = false;
     this.stopRequested = true;
     this.paused = true;
+    this.clearSilenceTimer();
     this.speechSynthesis.stop();
     this.stopRecognition();
     this.updateState({

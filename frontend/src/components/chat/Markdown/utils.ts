@@ -7,7 +7,7 @@ export function cleanStringPrefix(text: string, keyword: string): string {
   const kw = keyword.toLowerCase();
 
   const prefixRegex = new RegExp(
-    `^(?:[\\s\\r\\n\\*:()\\[\\]]|\\\\n)*${kw}(?:[:\\s\\r\\n\\*()\\[\\]]|\\\\n)*`,
+    `^(?:[\\s\\r\\n\\*:()!>\\[\\]]|\\\\n)*${kw}(?:[:\\s\\r\\n\\*()!>\\[\\]]|\\\\n)*`,
     "i"
   );
 
@@ -15,7 +15,7 @@ export function cleanStringPrefix(text: string, keyword: string): string {
     str = str.replace(prefixRegex, "");
   }
 
-  return str.replace(/^(?:[\\s\\r\\n\\*:()\\[\\]]|\\\\n)+/, "");
+  return str.replace(/^(?:[\\s\\r\\n\\*:()!>\\[\\]]|\\\\n)+/, "");
 }
 
 export function getCalloutType(

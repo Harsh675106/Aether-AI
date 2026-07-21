@@ -8,7 +8,6 @@ class SystemSnapshot(BaseModel):
     model: str
     memory: str
     database: str
-    voice: str
     vision: str
     internet: str
     tools: str

@@ -26,6 +26,8 @@ export type VoiceState = {
   listening: boolean;
   active: boolean;
   speaking: boolean;
+  detectedLanguage?: string;
+  detectedLanguageCode?: string;
   updatedAt: number;
 };
 

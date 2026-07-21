@@ -14,7 +14,6 @@ from app.security.permission_manager import PermissionManager
 from app.security.secret_manager import SecretManager
 from app.services.system_service import SystemService
 from app.tools.manager import PlaceholderToolManager
-from app.voice.engine import VoiceEngine
 from app.web.search import SearXNGClient, WebContentExtractor
 from app.workflow.engine import PlaceholderWorkflowEngine
 
@@ -22,14 +21,10 @@ from app.workflow.engine import PlaceholderWorkflowEngine
 @dataclass
 class ApplicationContainer:
     settings: Settings
-    _monitoring_service: MonitoringService = field(default_factory=get_monitoring_service, init=False)
-    _voice_engine: VoiceEngine = field(init=False)
-
-    def __post_init__(self) -> None:
-        self._voice_engine = VoiceEngine.from_settings(
-            settings=self.settings,
-            monitoring_service=self.monitoring_service(),
-        )
+    _monitoring_service: MonitoringService = field(
+        default_factory=get_monitoring_service,
+        init=False,
+    )
 
     def system_service(self) -> SystemService:
         return SystemService(settings=self.settings)
@@ -84,6 +79,3 @@ class ApplicationContainer:
 
     def monitoring_service(self) -> MonitoringService:
         return self._monitoring_service
-
-    def voice_engine(self) -> VoiceEngine:
-        return self._voice_engine

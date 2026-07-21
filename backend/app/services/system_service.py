@@ -14,7 +14,6 @@ class SystemService:
             model="Aether Provider Router",
             memory="placeholder",
             database="configured",
-            voice="disabled",
             vision="disabled",
             internet="restricted",
             tools="idle",

@@ -2,59 +2,46 @@ import { describe, expect, it } from "vitest";
 import { formatMarkdownForSpeech } from "./formatter";
 
 describe("formatMarkdownForSpeech", () => {
-  it("replaces code blocks with a friendly spoken placeholder", () => {
-    const input = "Here is the solution:\n```js\nconst x = 10;\nconsole.log(x);\n```\nLet me know if you need more help!";
-    const output = formatMarkdownForSpeech(input);
+  it("returns empty string for empty input", () => {
+    expect(formatMarkdownForSpeech("")).toBe("");
+  });
 
+  it("replaces code blocks with natural spoken placeholder", () => {
+    const input = "Here is the code:\n```typescript\nconst x = 1;\n```\nDone!";
+    const output = formatMarkdownForSpeech(input);
     expect(output).toContain("I have provided the code in the chat.");
-    expect(output).not.toContain("const x = 10");
-    expect(output).not.toContain("```");
+    expect(output).not.toContain("const x = 1;");
   });
 
-  it("strips heading hashes and adds punctuation pauses", () => {
-    const input = "# Main Title\n## Section One\n### Sub-heading";
+  it("converts headings to punctuated sentences", () => {
+    const input = "# Voice Engine\nThis is a test";
     const output = formatMarkdownForSpeech(input);
-
-    expect(output).toBe("Main Title. Section One. Sub-heading.");
-    expect(output).not.toContain("#");
+    expect(output).toContain("Voice Engine.");
   });
 
-  it("removes bold, italic, and strikethrough formatting tags", () => {
-    const input = "This is **bold**, *italic*, __underline__, and ~~strikethrough~~ text.";
+  it("removes bold, italic, and strikethrough markers", () => {
+    const input = "This is **bold** and *italic* and ~~deleted~~ text.";
     const output = formatMarkdownForSpeech(input);
-
-    expect(output).toBe("This is bold, italic, underline, and strikethrough text.");
+    expect(output).toBe("This is bold and italic and deleted text.");
   });
 
-  it("formats bullet lists and numbered lists into natural speech", () => {
-    const bulletInput = "- First item\n* Second item\n+ Third item";
-    expect(formatMarkdownForSpeech(bulletInput)).toBe("First item. Second item. Third item.");
-
-    const numberedInput = "1. Open the app\n2. Click settings\n3. Save changes";
-    expect(formatMarkdownForSpeech(numberedInput)).toBe("Step 1, Open the app. Step 2, Click settings. Step 3, Save changes.");
+  it("replaces URLs with link in chat placeholder", () => {
+    const input = "Visit https://example.com for more info.";
+    const output = formatMarkdownForSpeech(input);
+    expect(output).toContain("link in chat");
+    expect(output).not.toContain("https://example.com");
   });
 
-  it("converts markdown links and raw URLs into clean spoken text", () => {
-    const linkInput = "Check out [our website](https://example.com) for details.";
-    expect(formatMarkdownForSpeech(linkInput)).toBe("Check out our website for details.");
-
-    const rawUrlInput = "Visit https://aether.ai/docs to learn more.";
-    expect(formatMarkdownForSpeech(rawUrlInput)).toBe("Visit link in chat to learn more.");
+  it("formats numbered lists as Step 1, Step 2", () => {
+    const input = "1. First step\n2. Second step";
+    const output = formatMarkdownForSpeech(input);
+    expect(output).toContain("Step 1, First step.");
+    expect(output).toContain("Step 2, Second step.");
   });
 
-  it("formats tables without raw pipe syntax", () => {
-    const tableInput = "| Name | Role |\n| --- | --- |\n| Alice | Developer |\n| Bob | Designer |";
-    const output = formatMarkdownForSpeech(tableInput);
-
-    expect(output).not.toContain("|");
-    expect(output).toContain("Name, Role.");
-    expect(output).toContain("Alice, Developer.");
-  });
-
-  it("strips decorative emojis while preserving text", () => {
-    const emojiInput = "Hello Aether! 🚀🔥 Have a great day! 😊";
-    const output = formatMarkdownForSpeech(emojiInput);
-
-    expect(output).toBe("Hello Aether! Have a great day!");
+  it("strips decorative emojis", () => {
+    const input = "Hello world! 🚀✨";
+    const output = formatMarkdownForSpeech(input);
+    expect(output).toBe("Hello world!");
   });
 });

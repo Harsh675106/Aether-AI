@@ -46,6 +46,13 @@ describe("MarkdownMessage", () => {
     expect(screen.getByText("This is the summary content.")).toBeInTheDocument();
     expect(screen.queryByText("Summary:")).toBeNull();
   });
+
+  it("renders blockquote-style callouts as CalloutBlock elements directly without nesting", () => {
+    render(<MarkdownMessage content="> [!IMPORTANT]\n> This is an important blockquote callout." />);
+
+    expect(screen.getByRole("note", { name: /important/i })).toBeInTheDocument();
+    expect(screen.getByText("This is an important blockquote callout.")).toBeInTheDocument();
+  });
 });
 
 

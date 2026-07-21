@@ -1,4 +1,6 @@
-﻿export type SpeechRecognitionSessionOptions = {
+import { MULTILINGUAL_CONFIGS, findBestVoiceForLanguage, detectLanguageFromText } from "./languages";
+
+export type SpeechRecognitionSessionOptions = {
   language: string;
   continuous: boolean;
   interimResults: boolean;
@@ -48,9 +50,10 @@ export class RegexWakeWordDetector {
   }
 
   private variants(wakeWord: string): string[] {
+    const rawLower = wakeWord.toLowerCase().trim();
     const normalized = this.normalized(wakeWord);
     const collapsed = normalized.replace(/\s+/g, "");
-    const variants = new Set<string>([normalized, collapsed]);
+    const variants = new Set<string>([rawLower, normalized, collapsed]);
 
     if (collapsed.startsWith("ae") && collapsed.length > 1) {
       variants.add(collapsed.slice(1));
@@ -60,14 +63,22 @@ export class RegexWakeWordDetector {
       variants.add(collapsed.slice(1));
     }
 
-    return [...variants].filter(Boolean);
+    // Include all wake word variants registered across language configs
+    for (const config of MULTILINGUAL_CONFIGS) {
+      for (const variant of config.wakeWordVariants) {
+        variants.add(variant.toLowerCase().trim());
+      }
+    }
+
+    return [...variants].filter(Boolean).sort((a, b) => b.length - a.length);
   }
 
   matches(transcript: string, wakeWord: string): boolean {
-    const normalizedTranscript = this.normalized(transcript);
+    const rawTranscript = transcript.toLowerCase();
     return this.variants(wakeWord).some((variant) => {
-      const pattern = new RegExp(`\\b${this.escapePattern(variant)}\\b`, "i");
-      return pattern.test(normalizedTranscript);
+      const escaped = this.escapePattern(variant);
+      const pattern = new RegExp(`(?:^|[\\s,.:;!?\\(\\)\\[\\]])${escaped}(?:$|[\\s,.:;!?\\(\\)\\[\\]])`, "i");
+      return pattern.test(rawTranscript);
     });
   }
 
@@ -75,8 +86,9 @@ export class RegexWakeWordDetector {
     let cleaned = transcript;
 
     for (const variant of this.variants(wakeWord)) {
-      const pattern = new RegExp(`\\b${this.escapePattern(variant)}\\b`, "ig");
-      cleaned = cleaned.replace(pattern, "");
+      const escaped = this.escapePattern(variant);
+      const pattern = new RegExp(`(?:^|[\\s,.:;!?\\(\\)\\[\\]])${escaped}(?:$|[\\s,.:;!?\\(\\)\\[\\]])`, "ig");
+      cleaned = cleaned.replace(pattern, " ");
     }
 
     return cleaned.replace(/\s+/g, " ").trim().replace(/^[,.:;!?]+|[,.:;!?]+$/g, "");
@@ -101,38 +113,107 @@ class BrowserSpeechRecognitionProvider implements SpeechToTextProvider {
     const recognition = new Recognition();
     recognition.continuous = options.continuous;
     recognition.interimResults = options.interimResults;
-    recognition.maxAlternatives = options.maxAlternatives ?? 1;
-    recognition.lang = options.language;
+    recognition.maxAlternatives = options.maxAlternatives ?? 3;
+    if (options.language) {
+      recognition.lang = options.language;
+    }
 
-    recognition.onstart = () => options.onStart?.();
-    recognition.onend = () => options.onEnd?.();
-    recognition.onerror = (event: any) => {
-      options.onError(event?.error ?? event?.message ?? "Speech recognition failed.");
+    let isStarted = false;
+
+    recognition.onstart = () => {
+      isStarted = true;
+      options.onStart?.();
     };
+
+    recognition.onend = () => {
+      isStarted = false;
+      options.onEnd?.();
+    };
+
+    recognition.onerror = (event: any) => {
+      const err = String(event?.error ?? event?.message ?? "").toLowerCase();
+      // Ignore non-fatal browser transient pauses / no-speech events
+      if (err.includes("aborted") || err.includes("no-speech") || err.includes("network")) {
+        return;
+      }
+      options.onError(err || "Speech recognition encountered an issue.");
+    };
+
     recognition.onresult = (event: any) => {
-      const result = event.results?.[event.resultIndex ?? event.results.length - 1];
-      const transcript = String(result?.[0]?.transcript ?? "").trim();
-      const isFinal = Boolean(result?.isFinal);
-      if (transcript) {
-        options.onResult(transcript, isFinal);
+      if (!event.results || event.results.length === 0) {
+        return;
+      }
+
+      let combinedTranscript = "";
+      let isFinal = false;
+
+      for (let i = 0; i < event.results.length; i++) {
+        const item = event.results[i];
+        const piece = String(item?.[0]?.transcript ?? "").trim();
+        if (piece) {
+          combinedTranscript = combinedTranscript ? `${combinedTranscript} ${piece}` : piece;
+        }
+        if (item.isFinal) {
+          isFinal = true;
+        }
+      }
+
+      if (combinedTranscript) {
+        options.onResult(combinedTranscript.trim(), isFinal);
       }
     };
 
     return {
-      start: () => recognition.start(),
-      stop: () => recognition.stop(),
-      abort: () => recognition.abort(),
+      start: () => {
+        if (isStarted) {
+          return;
+        }
+        try {
+          recognition.start();
+        } catch (err: any) {
+          if (!String(err).includes("already started")) {
+            throw err;
+          }
+        }
+      },
+      stop: () => {
+        try {
+          recognition.stop();
+        } catch {
+          try {
+            recognition.abort();
+          } catch {}
+        }
+      },
+      abort: () => {
+        try {
+          recognition.abort();
+        } catch {}
+      },
     };
   }
 }
 
 class BrowserSpeechSynthesisProvider implements TextToSpeechProvider {
+  constructor() {
+    if (typeof window !== "undefined" && window.speechSynthesis) {
+      // Chrome & Edge load voices asynchronously; bind listener to pre-fetch voices
+      if (typeof window.speechSynthesis.onvoiceschanged !== "undefined") {
+        window.speechSynthesis.onvoiceschanged = () => {
+          try {
+            window.speechSynthesis.getVoices();
+          } catch {}
+        };
+      }
+    }
+  }
+
   isSupported(): boolean {
     return typeof window !== "undefined" && Boolean(window.speechSynthesis && window.SpeechSynthesisUtterance);
   }
 
   async speak(text: string, options: TextToSpeechOptions): Promise<void> {
-    if (!this.isSupported()) {
+    if (!this.isSupported() || !text || !text.trim()) {
       return;
     }
 
@@ -141,27 +222,54 @@ class BrowserSpeechSynthesisProvider implements TextToSpeechProvider {
 
     await new Promise<void>((resolve) => {
       const utterance = new SpeechSynthesisUtterance(text);
-      utterance.lang = options.language;
-      utterance.rate = options.rate;
-      utterance.pitch = options.pitch;
-      utterance.volume = options.volume;
+      utterance.lang = options.language || "en-IN";
+      utterance.rate = Math.max(0.5, Math.min(options.rate || 1, 2.0));
+      utterance.pitch = Math.max(0.5, Math.min(options.pitch || 1, 1.5));
+      utterance.volume = Math.max(0, Math.min(options.volume ?? 1, 1.0));
 
-      if (options.voiceName) {
-        const voice = synth.getVoices().find((item) => item.name === options.voiceName);
-        if (voice) {
-          utterance.voice = voice;
+      const availableVoices = synth.getVoices();
+
+      if (options.voiceName && availableVoices.length > 0) {
+        const matchedVoice = availableVoices.find((item) => item.name === options.voiceName);
+        if (matchedVoice) {
+          utterance.voice = matchedVoice;
         }
       }
 
-      utterance.onend = () => resolve();
-      utterance.onerror = () => resolve();
+      if (!utterance.voice) {
+        const langConfig =
+          MULTILINGUAL_CONFIGS.find((c) => c.code.toLowerCase() === options.language.toLowerCase()) ||
+          detectLanguageFromText(text);
+        const bestVoice = findBestVoiceForLanguage(langConfig);
+        if (bestVoice) {
+          utterance.voice = bestVoice;
+        }
+      }
+
+      let resolved = false;
+      const done = () => {
+        if (!resolved) {
+          resolved = true;
+          resolve();
+        }
+      };
+
+      utterance.onend = done;
+      utterance.onerror = done;
+
+      // Timeout fallback safeguard in case browser TTS event is delayed
+      const maxSpeechMs = Math.max(3000, text.length * 120);
+      const safetyTimeout = window.setTimeout(done, maxSpeechMs);
+
       synth.speak(utterance);
     });
   }
 
   stop(): void {
     if (this.isSupported()) {
-      window.speechSynthesis.cancel();
+      try {
+        window.speechSynthesis.cancel();
+      } catch {}
     }
   }
 }
