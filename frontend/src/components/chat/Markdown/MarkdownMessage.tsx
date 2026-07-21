@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import React, { useMemo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
@@ -13,7 +13,7 @@ import { CustomImage } from "./blocks/CustomImage";
 import { CodeBlock } from "./blocks/CodeBlock";
 import { CalloutBlock } from "./blocks/CalloutBlock";
 import type { MarkdownMessageProps } from "./types";
-import { getCalloutType } from "./utils";
+import { getCalloutType, cleanStringPrefix } from "./utils";
 
 function prepareContentForMarkdown(content: string) {
   if (!content) {
@@ -21,12 +21,66 @@ function prepareContentForMarkdown(content: string) {
   }
 
   return content.replace(
-    /(?<!\]\()(?<!\]\[)(?<!\()(?<!\[)(https?:\/\/[^\s<>()]+)/g,
-    (url) => {
-      const cleanUrl = url.replace(/[.,;:!?]+$/, "");
-      return `[${cleanUrl}](${cleanUrl})`;
+    /(?<!\]\()(?<!\]\[)(?<!\[)\b((?:https?:\/\/|www\.)[^\s<>()]+)/gi,
+    (match, url) => {
+      const cleanUrl = url.replace(/[.,;:!?)]+$/, "");
+      const trailingPunct = url.slice(cleanUrl.length);
+      const target = cleanUrl.startsWith("www.") ? `https://${cleanUrl}` : cleanUrl;
+      return `[${cleanUrl}](${target})${trailingPunct}`;
     }
   );
+}
+
+function stripCalloutPrefixFromReactNode(node: React.ReactNode, keyword: string): React.ReactNode {
+  if (!node) {
+    return node;
+  }
+
+  if (typeof node === "string") {
+    return cleanStringPrefix(node, keyword);
+  }
+
+  if (Array.isArray(node)) {
+    const result: React.ReactNode[] = [];
+    for (const child of node) {
+      if (child) {
+        const strippedChild = stripCalloutPrefixFromReactNode(child, keyword);
+        if (strippedChild !== null && strippedChild !== "") {
+          result.push(strippedChild);
+        }
+      }
+    }
+    return result;
+  }
+
+  if (React.isValidElement(node)) {
+    const element = node as React.ReactElement<any>;
+    const childrenStr = element.props.children;
+    const nodeText = typeof childrenStr === "string" ? childrenStr.toLowerCase().replace(/[^a-z0-9]/g, "") : "";
+    if (nodeText === keyword.toLowerCase()) {
+      return null;
+    }
+    const strippedChildren = stripCalloutPrefixFromReactNode(childrenStr, keyword);
+    if (strippedChildren === null || strippedChildren === "") {
+      return null;
+    }
+    return React.cloneElement(element, {}, strippedChildren);
+  }
+
+  return node;
+}
+
+function getASTTextContent(node: any): string {
+  if (!node) {
+    return "";
+  }
+  if (node.value !== undefined) {
+    return node.value;
+  }
+  if (Array.isArray(node.children)) {
+    return node.children.map(getASTTextContent).join("");
+  }
+  return "";
 }
 
 export function MarkdownMessage({ content }: MarkdownMessageProps) {
@@ -67,14 +121,15 @@ export function MarkdownMessage({ content }: MarkdownMessageProps) {
       },
 
       p: ({ children, node }: any) => {
-        const textContent = node?.children?.map((child: any) => child.value ?? "").join("") ?? "";
+        const textContent = getASTTextContent(node);
         const callout = getCalloutType(textContent);
 
         if (callout) {
-          const { config } = callout;
+          const { config, title, type } = callout;
+          const cleanChildren = stripCalloutPrefixFromReactNode(children, type);
           return (
-            <CalloutBlock title={textContent} config={config}>
-              <p className={`text-sm leading-7 ${config.text}`}>{children}</p>
+            <CalloutBlock title={title} config={config}>
+              <p className={`text-sm leading-7 ${config.text}`}>{cleanChildren}</p>
             </CalloutBlock>
           );
         }

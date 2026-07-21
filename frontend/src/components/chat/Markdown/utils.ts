@@ -2,22 +2,50 @@ import React from "react";
 import { CALLOUT_MAP } from "./types";
 import type { CalloutConfig } from "./types";
 
-export function getCalloutType(
-  text: string
-): { type: string; config: CalloutConfig; cleanText: string } | null {
-  const normalized = text.toLowerCase().replace(/[^a-z0-9]/g, "");
+export function cleanStringPrefix(text: string, keyword: string): string {
+  let str = text;
+  const kw = keyword.toLowerCase();
 
-  for (const [type, config] of Object.entries(CALLOUT_MAP)) {
-    if (normalized.includes(type)) {
-      return {
-        type,
-        config,
-        cleanText: text,
-      };
-    }
+  const prefixRegex = new RegExp(
+    `^(?:[\\s\\r\\n\\*:()\\[\\]]|\\\\n)*${kw}(?:[:\\s\\r\\n\\*()\\[\\]]|\\\\n)*`,
+    "i"
+  );
+
+  while (prefixRegex.test(str)) {
+    str = str.replace(prefixRegex, "");
   }
 
-  return null;
+  return str.replace(/^(?:[\\s\\r\\n\\*:()\\[\\]]|\\\\n)+/, "");
+}
+
+export function getCalloutType(
+  text: string
+): { type: string; config: CalloutConfig; cleanText: string; title: string } | null {
+  const trimmed = text.trim();
+  const keywords = Object.keys(CALLOUT_MAP).sort((a, b) => b.length - a.length);
+
+  const matchedKeyword = keywords.find((k) =>
+    new RegExp(`^(?:[\\s\\r\\n\\*:()\\[\\]]|\\\\n)*(?:\\[!${k}\\]|\\*?\\*?${k}\\*?\\*?\\s*:\\s*|${k}\\s*:\\s*)`, "i").test(trimmed)
+  );
+
+  if (!matchedKeyword) {
+    return null;
+  }
+
+  const config = CALLOUT_MAP[matchedKeyword];
+  if (!config) {
+    return null;
+  }
+
+  const cleanText = cleanStringPrefix(trimmed, matchedKeyword);
+  const title = matchedKeyword.charAt(0).toUpperCase() + matchedKeyword.slice(1);
+
+  return {
+    type: matchedKeyword,
+    config,
+    cleanText,
+    title,
+  };
 }
 
 export function extractTextContent(node: React.ReactNode): string {

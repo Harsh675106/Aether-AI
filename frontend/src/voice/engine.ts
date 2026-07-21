@@ -1,5 +1,6 @@
 import { browserSpeechRecognitionProvider, browserSpeechSynthesisProvider, RegexWakeWordDetector } from "./providers";
 import { publishVoiceMonitoringEvent } from "./monitoring";
+import { formatMarkdownForSpeech } from "./formatter";
 import type { VoiceEngineOptions, VoiceState } from "./types";
 
 const DEFAULT_WAKE_WORD = "Aether";
@@ -147,7 +148,7 @@ export class AetherVoiceEngine {
       active: false,
       speaking: false,
     });
-    this.publishEvent("voice_completed", "Completed", "Voice interaction cycle completed successfully.", "info", "complete", {
+    this.publishEvent("voice_stopped", "Voice Engine Stopped", "Voice engine interaction has been stopped.", "info", "stopped", {
       session_id: this.sessionId,
       conversation_id: this.conversationId,
     });
@@ -180,7 +181,11 @@ export class AetherVoiceEngine {
           listening: true,
           active: false,
         });
-        this.publishEvent("voice_waiting_for_wake_word", "Waiting for Wake Word", `Listening for '${this.settings.wakeWord}'.`, "info", "running", {
+        this.publishEvent("voice_microphone_activated", "Microphone Activated", "Microphone hardware initialized and ready.", "info", "running", {
+          session_id: this.sessionId,
+          conversation_id: this.conversationId,
+        });
+        this.publishEvent("voice_waiting_for_wake_word", "Waiting for Wake Word", `Listening for wake word '${this.settings.wakeWord}'.`, "info", "running", {
           wake_word: this.settings.wakeWord,
           session_id: this.sessionId,
           conversation_id: this.conversationId,
@@ -267,10 +272,15 @@ export class AetherVoiceEngine {
       });
 
       if (command) {
+        this.publishEvent("voice_speech_recognized", "Speech Recognized", `Recognized speech: "${command}"`, "info", "running", {
+          transcript: command,
+          session_id: this.sessionId,
+          conversation_id: this.conversationId,
+        });
         await this.handleSpokenCommand(command);
       } else {
         this.updateState({ phase: "listening" });
-        this.publishEvent("voice_listening", "Listening", "Capturing speech input.", "info", "running", {
+        this.publishEvent("voice_listening", "Listening", "Capturing speech input after wake word.", "info", "running", {
           session_id: this.sessionId,
           conversation_id: this.conversationId,
         });
@@ -279,6 +289,11 @@ export class AetherVoiceEngine {
     }
 
     if (isFinal) {
+      this.publishEvent("voice_speech_recognized", "Speech Recognized", `Recognized speech: "${normalizedTranscript}"`, "info", "running", {
+        transcript: normalizedTranscript,
+        session_id: this.sessionId,
+        conversation_id: this.conversationId,
+      });
       await this.handleSpokenCommand(normalizedTranscript);
     }
   }
@@ -313,7 +328,7 @@ export class AetherVoiceEngine {
 
     try {
       this.updateState({ phase: "sending_to_chatbot" });
-      this.publishEvent("voice_sending_to_chatbot", "Sending to Chatbot", "User speech is being routed through the current AI chat pipeline.", "info", "running", {
+      this.publishEvent("voice_sending_to_chatbot", "Sending to Chatbot", "User speech is being routed through the AI chat pipeline.", "info", "running", {
         transcript: cleanedTranscript,
         session_id: this.sessionId,
         conversation_id: this.conversationId,
@@ -338,7 +353,7 @@ export class AetherVoiceEngine {
       const finalResponse = response ?? this.streamedResponse;
       if (!finalResponse.trim()) {
         this.updateState({ phase: "completed", listening: false, active: false, speaking: false });
-        this.publishEvent("voice_completed", "Completed", "No speech response was generated.", "info", "complete", {
+        this.publishEvent("voice_completed", "Playback Completed", "No speech response was generated.", "info", "complete", {
           session_id: this.sessionId,
           conversation_id: this.conversationId,
         });
@@ -348,25 +363,29 @@ export class AetherVoiceEngine {
         return;
       }
 
+      const spokenText = formatMarkdownForSpeech(finalResponse);
+
       this.updateState({
         phase: "converting_to_speech",
         response: finalResponse,
         speaking: false,
       });
-      this.publishEvent("voice_converting_to_speech", "Converting to Speech", "Preparing the AI response for playback.", "info", "running", {
+      this.publishEvent("voice_converting_to_speech", "Converting Text to Speech", "Preparing the AI response for playback.", "info", "running", {
         response_length: finalResponse.length,
+        spoken_length: spokenText.length,
         session_id: this.sessionId,
         conversation_id: this.conversationId,
       });
 
       this.updateState({ phase: "speaking", speaking: true });
-      this.publishEvent("voice_speaking", "Speaking", "The response is being spoken aloud.", "info", "running", {
+      this.publishEvent("voice_speaking", "Speaking Response", "The response is being spoken aloud.", "info", "running", {
         response_length: finalResponse.length,
+        spoken_length: spokenText.length,
         session_id: this.sessionId,
         conversation_id: this.conversationId,
       });
 
-      await this.speechSynthesis.speak(finalResponse, {
+      await this.speechSynthesis.speak(spokenText, {
         language: this.settings.language,
         voiceName: this.settings.voiceName,
         rate: this.settings.speechRate,
@@ -375,7 +394,7 @@ export class AetherVoiceEngine {
       });
 
       this.updateState({ phase: "completed", listening: false, active: false, speaking: false });
-      this.publishEvent("voice_completed", "Completed", "Voice interaction cycle completed successfully.", "info", "complete", {
+      this.publishEvent("voice_completed", "Playback Completed", "Voice response playback finished.", "info", "complete", {
         session_id: this.sessionId,
         conversation_id: this.conversationId,
       });
@@ -403,6 +422,10 @@ export class AetherVoiceEngine {
       listening: true,
       active: false,
       speaking: false,
+    });
+    this.publishEvent("voice_returning_to_idle", "Returning to Idle", "Returning to idle wake word listening loop.", "info", "idle", {
+      session_id: this.sessionId,
+      conversation_id: this.conversationId,
     });
     await this.beginListening();
   }

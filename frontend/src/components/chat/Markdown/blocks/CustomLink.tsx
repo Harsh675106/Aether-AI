@@ -8,34 +8,55 @@ interface CustomLinkProps {
   children: React.ReactNode;
 }
 
-async function openExternalLink(href?: string) {
-  if (!href) {
+export function normalizeUrl(url?: string): string {
+  if (!url) return "";
+  const trimmed = url.trim();
+  if (!trimmed) return "";
+
+  // If URL lacks a protocol scheme (e.g. www.google.com or google.com), prepend https://
+  if (!/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(trimmed)) {
+    return `https://${trimmed}`;
+  }
+
+  return trimmed;
+}
+
+export async function openExternalLink(href?: string) {
+  const targetUrl = normalizeUrl(href);
+  if (!targetUrl) {
     return;
   }
 
   try {
-    if (typeof window !== "undefined" && "__TAURI_INTERNALS__" in window) {
-      await open(href);
+    const isTauri = typeof window !== "undefined" && ("__TAURI_INTERNALS__" in window || "__TAURI__" in window);
+    if (isTauri) {
+      await open(targetUrl);
       return;
     }
 
-    window.open(href, "_blank", "noopener,noreferrer");
-  } catch {
     if (typeof window !== "undefined") {
-      window.open(href, "_blank", "noopener,noreferrer");
+      window.open(targetUrl, "_blank", "noopener,noreferrer");
+    }
+  } catch (err) {
+    console.warn("Failed to open link with Tauri shell, falling back to window.open:", err);
+    if (typeof window !== "undefined") {
+      window.open(targetUrl, "_blank", "noopener,noreferrer");
     }
   }
 }
 
 export const CustomLink = React.memo(
   ({ href, children }: CustomLinkProps) => {
+    const finalUrl = normalizeUrl(href);
+
     return (
       <motion.a
-        href={href}
+        href={finalUrl || "#"}
         target="_blank"
         rel="noopener noreferrer"
         onClick={(event) => {
           event.preventDefault();
+          event.stopPropagation();
           void openExternalLink(href);
         }}
         whileHover={{ y: -1 }}
@@ -57,6 +78,7 @@ export const CustomLink = React.memo(
           focus:outline-none
           focus:ring-2
           focus:ring-sky-500/40
+          cursor-pointer
         "
       >
         <span className="relative">
@@ -91,6 +113,7 @@ export const CustomLink = React.memo(
             group-hover:translate-x-0.5
             group-hover:-translate-y-0.5
             group-hover:opacity-100
+            shrink-0
           "
         />
       </motion.a>

@@ -8,14 +8,26 @@ export function AetherLogo() {
       transition={{ duration: 0.8, ease: "easeOut" }}
       className="pointer-events-auto absolute  z-50 hidden md:flex items-center "
     >
-      {/* Logo Image */}
       <motion.img
-        src="/assets/logo.png" // Replace with your logo path
+        src="/assets/logo.png"
         alt="Aether Logo"
-        initial={{ opacity: 0, rotate: -10, scale: 0.8 }}
-        animate={{ opacity: 1, rotate: 0, scale: 1 }}
-        transition={{ duration: 0.8, delay: 0.2 }}
-        className="h-40 w-40 object-contain select-none"
+        initial={{ opacity: 0, scale: 0.8 }}
+        animate={{
+          opacity: 1,
+          scale: 1,
+          rotate: 360,
+        }}
+        transition={{
+          opacity: { duration: 0.8 },
+          scale: { duration: 0.8 },
+          rotate: {
+            delay: 0.8, // Start rotating after fade-in
+            duration: 8,
+            ease: "linear",
+            repeat: Infinity,
+          },
+        }}
+        className="h-30 w-40 object-contain select-none"
         draggable={false}
       />
 

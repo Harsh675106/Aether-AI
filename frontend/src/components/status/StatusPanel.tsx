@@ -49,17 +49,6 @@ export function StatusPanel() {
           />
         </div>
 
-        <div className="relative flex items-center justify-between gap-4 text-[11px] uppercase tracking-[0.35em] text-slate-200">
-          <div className="flex items-center gap-3 ml-4 ">
-            <span className="font-semibold text-slate-100">System Status</span>
-            <span className="rounded-full border border-white/15 bg-white/5 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.32em] text-slate-100 shadow-[0_8px_20px_rgba(56,189,248,0.10)] backdrop-blur-sm">
-              Live
-            </span>
-          </div>
-          <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.35em] text-slate-400">
-            <span className="rounded-full bg-slate-950/15 px-2 py-1 text-white">AETHER HUB</span>
-          </div>
-        </div>
 
         <div className="relative grid grid-cols-6 gap-3">
           {stats.map((item, index) => (

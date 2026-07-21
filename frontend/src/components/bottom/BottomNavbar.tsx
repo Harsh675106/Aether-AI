@@ -25,7 +25,7 @@ export function BottomNavbar() {
         initial={{ opacity: 0, y: 18 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.8, ease: "easeOut" }}
-        className="absolute left-6 right-6 bottom-6 z-40 mx-auto flex max-w-[calc(100vw-3rem)] flex-wrap items-center justify-center gap-3 rounded-[3rem] border border-white/20 bg-[rgba(10,16,32,0.10)] px-4 py-3 shadow-[0_32px_120px_rgba(8,15,30,0.28)] backdrop-blur-sm"
+        className="absolute left-6 right-6 bottom-3 z-40 mx-auto flex max-w-[calc(100vw-3rem)] flex-wrap items-center justify-center gap-3 rounded-[3rem] border border-white/20 bg-[rgba(10,16,32,0.10)] px-4 py-3 shadow-[0_32px_120px_rgba(8,15,30,0.28)] backdrop-blur-sm"
         style={{
           backgroundImage:
             "linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0.01))",

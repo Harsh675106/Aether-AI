@@ -1,11 +1,118 @@
-﻿import { motion } from "framer-motion";
-import { Waves } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import { Waves, Mic, Volume2, Cpu, CheckCircle2, AlertTriangle, ArrowDown } from "lucide-react";
 
 import { useMonitoring } from "@/hooks/useMonitoring";
+import { useSmartScroll } from "@/hooks/useSmartScroll";
+import type { MonitoringEvent } from "@/types/monitoring";
 
+function getEventTone(event: MonitoringEvent) {
+  const isVoice = event.subsystem === "voice" || event.category === "voice";
+
+  if (isVoice) {
+    const type = event.event_type;
+
+    if (type.includes("error") || event.severity === "error") {
+      return {
+        dot: "bg-rose-500",
+        text: "text-rose-400",
+        glow: "shadow-[0_0_18px_rgba(244,63,94,0.6)]",
+        label: "VOICE ERROR",
+        icon: <AlertTriangle className="h-3 w-3 inline text-rose-400" />,
+        badgeStyle: "border-rose-500/30 bg-rose-500/10 text-rose-300",
+      };
+    }
+
+    if (type.includes("speaking") || type.includes("converting")) {
+      return {
+        dot: "bg-purple-400",
+        text: "text-purple-300",
+        glow: "shadow-[0_0_18px_rgba(192,132,252,0.6)]",
+        label: "SPEAKING",
+        icon: <Volume2 className="h-3 w-3 inline text-purple-300" />,
+        badgeStyle: "border-purple-400/30 bg-purple-500/10 text-purple-300",
+      };
+    }
+
+    if (
+      type.includes("processing") ||
+      type.includes("sending") ||
+      type.includes("receiving") ||
+      type.includes("recognized")
+    ) {
+      return {
+        dot: "bg-amber-400",
+        text: "text-amber-300",
+        glow: "shadow-[0_0_18px_rgba(245,158,11,0.6)]",
+        label: "PROCESSING",
+        icon: <Cpu className="h-3 w-3 inline text-amber-300" />,
+        badgeStyle: "border-amber-400/30 bg-amber-500/10 text-amber-300",
+      };
+    }
+
+    if (
+      type.includes("listening") ||
+      type.includes("wake_word") ||
+      type.includes("microphone") ||
+      type.includes("started")
+    ) {
+      return {
+        dot: "bg-cyan-400",
+        text: "text-cyan-300",
+        glow: "shadow-[0_0_18px_rgba(56,189,248,0.6)]",
+        label: "LISTENING",
+        icon: <Mic className="h-3 w-3 inline text-cyan-300" />,
+        badgeStyle: "border-cyan-400/30 bg-cyan-500/10 text-cyan-300",
+      };
+    }
+
+    return {
+      dot: "bg-emerald-400",
+      text: "text-emerald-300",
+      glow: "shadow-[0_0_18px_rgba(52,211,153,0.6)]",
+      label: "COMPLETED",
+      icon: <CheckCircle2 className="h-3 w-3 inline text-emerald-300" />,
+      badgeStyle: "border-emerald-400/30 bg-emerald-500/10 text-emerald-300",
+    };
+  }
+
+  if (event.severity === "success") {
+    return {
+      dot: "bg-emerald-400",
+      text: "text-emerald-300",
+      glow: "shadow-[0_0_18px_#4ADE80]",
+      label: "SUCCESS",
+      icon: "✓",
+      badgeStyle: "border-emerald-400/20 bg-emerald-400/10 text-emerald-200",
+    };
+  }
+
+  if (event.severity === "warning") {
+    return {
+      dot: "bg-orange-400",
+      text: "text-orange-300",
+      glow: "shadow-[0_0_18px_#FB923C]",
+      label: "WARNING",
+      icon: "⚡",
+      badgeStyle: "border-orange-400/20 bg-orange-400/10 text-orange-200",
+    };
+  }
+
+  return {
+    dot: "bg-cyan-400",
+    text: "text-cyan-300",
+    glow: "shadow-[0_0_18px_#5EEBFF]",
+    label: "INFO",
+    icon: "◉",
+    badgeStyle: "border-cyan-400/20 bg-cyan-400/10 text-cyan-200",
+  };
+}
 
 export function MonitorPanel() {
   const { events } = useMonitoring();
+  const { containerRef, handleScroll, scrollToBottom, isAtBottom } = useSmartScroll<HTMLDivElement>(
+    [events],
+    { threshold: 60 }
+  );
 
   return (
     <motion.div
@@ -36,6 +143,8 @@ export function MonitorPanel() {
           </div>
 
           <div
+            ref={containerRef}
+            onScroll={handleScroll}
             className="h-full min-h-0 overflow-y-auto pr-3 font-mono
     [&::-webkit-scrollbar]:w-1.5
     [&::-webkit-scrollbar-thumb]:rounded-full
@@ -60,31 +169,7 @@ export function MonitorPanel() {
               <div className="space-y-3 pb-10">
                 {events.map((event, index) => {
                   const latest = index === events.length - 1;
-
-                  const tone =
-                    event.severity === "success"
-                      ? {
-                          dot: "bg-emerald-400",
-                          text: "text-emerald-300",
-                          glow: "shadow-[0_0_18px_#4ADE80]",
-                          label: "SUCCESS",
-                          icon: "✓",
-                        }
-                      : event.severity === "warning"
-                        ? {
-                            dot: "bg-orange-400",
-                            text: "text-orange-300",
-                            glow: "shadow-[0_0_18px_#FB923C]",
-                            label: "WARNING",
-                            icon: "⚡",
-                          }
-                        : {
-                            dot: "bg-cyan-400",
-                            text: "text-cyan-300",
-                            glow: "shadow-[0_0_18px_#5EEBFF]",
-                            label: "INFO",
-                            icon: "◉",
-                          };
+                  const tone = getEventTone(event);
 
                   return (
                     <div
@@ -94,7 +179,6 @@ export function MonitorPanel() {
                       }`}
                     >
                       {/* Timeline Node */}
-
                       <div
                         className={`absolute left-[5px] top-3 h-4 w-4 rounded-full border-2 border-black ${tone.dot} ${tone.glow}`}
                       >
@@ -106,7 +190,6 @@ export function MonitorPanel() {
                       </div>
 
                       {/* Log */}
-
                       <div className="group">
                         <div className="flex flex-wrap items-center gap-3">
                           <span className="text-white/40 text-xs">
@@ -117,7 +200,7 @@ export function MonitorPanel() {
                             })}
                           </span>
 
-                          <span className={`${tone.text} font-bold tracking-[0.2em] text-xs`}>
+                          <span className={`${tone.text} font-bold tracking-[0.2em] text-xs flex items-center gap-1`}>
                             {tone.icon} {tone.label}
                           </span>
 
@@ -156,8 +239,24 @@ export function MonitorPanel() {
               </div>
             )}
           </div>
+
+          <AnimatePresence>
+            {!isAtBottom && (
+              <motion.button
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 10 }}
+                type="button"
+                onClick={() => scrollToBottom("smooth")}
+                className="absolute bottom-6 right-6 z-20 flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-sky-950/80 text-sky-300 hover:bg-sky-900 shadow-[0_4px_12px_rgba(56,189,248,0.25)] backdrop-blur-sm transition pointer-events-auto"
+              >
+                <ArrowDown className="h-4 w-4" />
+              </motion.button>
+            )}
+          </AnimatePresence>
         </div>
       </div>
     </motion.div>
   );
 }
+

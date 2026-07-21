@@ -33,22 +33,22 @@ export type CalloutConfig = {
 
 export const CALLOUT_MAP: Record<string, CalloutConfig> = {
   summary: {
-    icon: Sparkles,
-    bg: "bg-amber-500/5",
-    border: "border-amber-500/20",
-    text: "text-amber-200",
-    accent: "text-amber-400",
-    emoji: "✨",
-  },
+  icon: Sparkles,
+  bg: "bg-blue-500/10",
+  border: "border-blue-400/40",
+  text: "text-blue-100",
+  accent: "text-blue-300",
+  emoji: "⚡",
+},
 
-  overview: {
-    icon: Sparkles,
-    bg: "bg-amber-500/5",
-    border: "border-amber-500/20",
-    text: "text-amber-200",
-    accent: "text-amber-400",
-    emoji: "✨",
-  },
+overview: {
+  icon: Sparkles,
+  bg: "bg-blue-500/10",
+  border: "border-blue-400/40",
+  text: "text-blue-100",
+  accent: "text-blue-300",
+  emoji: "⚡",
+},
 
   tips: {
     icon: Lightbulb,
@@ -140,3 +140,10 @@ export const CALLOUT_MAP: Record<string, CalloutConfig> = {
     emoji: "➡",
   },
 };
+
+// Aliases for common markdown callout prefixes
+CALLOUT_MAP["note"] = CALLOUT_MAP["notes"];
+CALLOUT_MAP["tip"] = CALLOUT_MAP["tips"];
+CALLOUT_MAP["warn"] = CALLOUT_MAP["warning"];
+CALLOUT_MAP["caution"] = CALLOUT_MAP["warning"];
+CALLOUT_MAP["info"] = CALLOUT_MAP["overview"];

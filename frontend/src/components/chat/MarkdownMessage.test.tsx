@@ -38,6 +38,14 @@ describe("MarkdownMessage", () => {
     expect(screen.getByRole("note", { name: /warning/i })).toBeInTheDocument();
     expect(screen.getAllByText(/this needs attention/i).length).toBeGreaterThan(0);
   });
+
+  it("strips duplicate or repeated callout prefixes from callout content", () => {
+    render(<MarkdownMessage content="**Summary:**\nSummary: This is the summary content." />);
+
+    expect(screen.getByRole("note", { name: /summary/i })).toBeInTheDocument();
+    expect(screen.getByText("This is the summary content.")).toBeInTheDocument();
+    expect(screen.queryByText("Summary:")).toBeNull();
+  });
 });
 
 
