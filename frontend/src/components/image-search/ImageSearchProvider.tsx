@@ -4,17 +4,25 @@ import type { ReactNode } from "react";
 import { publishVoiceMonitoringEvent } from "@/voice/monitoring";
 import type { ImageSearchPayload, ImageSearchViewerState } from "./types";
 
-type ImageSearchContextValue = {
+import { apiGet } from '@/services/apiClient';
+import type { ImageSearchHistoryEntry } from './types';
+
+type ImageSearchContextValue = { 
   viewer: ImageSearchViewerState;
+  history: ImageSearchHistoryEntry[];
   openResults: (payload: ImageSearchPayload) => void;
+  openHistory: () => Promise<void>;
+  openHistoryEntry: (entry: ImageSearchHistoryEntry) => void;
   close: () => void;
   setActiveIndex: (index: number) => void;
 };
 
 const defaultState: ImageSearchViewerState = {
   isOpen: false,
+  requestId: null,
   query: "",
   requestSource: null,
+  createdAt: null,
   results: [],
   activeIndex: 0,
 };
@@ -23,7 +31,10 @@ const noop = () => undefined;
 
 const ImageSearchContext = createContext<ImageSearchContextValue>({
   viewer: defaultState,
+  history: [],
   openResults: noop,
+  openHistory: async () => undefined,
+  openHistoryEntry: noop,
   close: noop,
   setActiveIndex: noop,
 });
@@ -43,6 +54,35 @@ function publishImageEvent(event_type: string, title: string, description: strin
 
 export function ImageSearchProvider({ children }: { children: ReactNode }) {
   const [viewer, setViewer] = useState<ImageSearchViewerState>(defaultState);
+  const [history, setHistory] = useState<ImageSearchHistoryEntry[]>([]);
+
+  const openHistoryEntry = (entry: ImageSearchHistoryEntry) => {
+    if (!entry.results.length) return;
+    setViewer({
+      isOpen: true,
+      requestId: entry.request_id,
+      query: entry.query,
+      requestSource: entry.request_source ?? null,
+      createdAt: entry.created_at ?? null,
+      results: entry.results,
+      activeIndex: 0,
+    });
+  };
+
+  const openHistory = async () => {
+    try {
+      const response = await apiGet<{ entries: ImageSearchHistoryEntry[] }>('/images/history?limit=24');
+      const entries = response.entries ?? [];
+      setHistory(entries);
+      const available = entries.filter((entry) => entry.results?.length);
+      if (!available.length) return;
+      const currentIndex = available.findIndex((entry) => entry.request_id === viewer.requestId);
+      const nextEntry = currentIndex >= 0 ? available[(currentIndex + 1) % available.length] : available[0];
+      if (nextEntry) openHistoryEntry(nextEntry);
+    } catch (error) {
+      console.error('Unable to load image history', error);
+    }
+  };
 
   const openResults = (payload: ImageSearchPayload) => {
     if (!payload.results.length) {
@@ -51,8 +91,10 @@ export function ImageSearchProvider({ children }: { children: ReactNode }) {
 
     setViewer({
       isOpen: true,
+      requestId: payload.request_id ?? null,
       query: payload.query,
       requestSource: payload.request_source ?? null,
+      createdAt: payload.created_at ?? null,
       results: payload.results,
       activeIndex: 0,
     });
@@ -95,11 +137,14 @@ export function ImageSearchProvider({ children }: { children: ReactNode }) {
   const value = useMemo(
     () => ({
       viewer,
+      history,
       openResults,
+      openHistory,
+      openHistoryEntry,
       close,
       setActiveIndex,
     }),
-    [viewer]
+    [history, viewer]
   );
 
   return <ImageSearchContext.Provider value={value}>{children}</ImageSearchContext.Provider>;

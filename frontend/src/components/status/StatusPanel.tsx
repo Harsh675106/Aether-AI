@@ -1,15 +1,38 @@
 import { motion } from "framer-motion";
+import { useSystemSnapshot } from '@/hooks/useSystemSnapshot';
 
-const stats = [
-  { label: "CPU", value: "72%", detail: "Core 0: 68% | Core 1: 75%" },
-  { label: "RAM", value: "64%", detail: "14.8 / 23 GB used" },
-  { label: "GPU", value: "81%", detail: "RTX 4080 | 8 GB VRAM" },
-  { label: "MODEL", value: "GPT-Aether", detail: "v1.2.0 • 1.9B params" },
-  { label: "STATUS", value: "ONLINE", detail: "Latency 17ms • Stable", active: true },
-  { label: "⚙", value: "CFG", detail: "Auto-optimize enabled" },
-];
+function formatBytes(bytes: number) {
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  return `${value.toFixed(unit >= 3 ? 1 : 0)} ${units[unit]}`;
+}
+
+function formatUptime(seconds: number) {
+  const days = Math.floor(seconds / 86400);
+  const hours = Math.floor((seconds % 86400) / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  return days ? `${days}d ${hours}h ${minutes}m` : `${hours}h ${minutes}m`;
+}
 
 export function StatusPanel() {
+  const { data, isLoading, isError } = useSystemSnapshot();
+  const stats = data
+    ? [
+        { label: 'CPU', value: `${data.cpu_percent.toFixed(0)}%`, detail: `${data.cpu_cores} logical cores` },
+        { label: 'RAM', value: `${data.ram_percent.toFixed(0)}%`, detail: `${formatBytes(data.ram_used_bytes)} / ${formatBytes(data.ram_total_bytes)} used` },
+        { label: 'DISK', value: `${data.disk_percent.toFixed(0)}%`, detail: `${formatBytes(data.disk_used_bytes)} / ${formatBytes(data.disk_total_bytes)} used` },
+        { label: 'UPTIME', value: formatUptime(data.uptime_seconds), detail: data.hostname },
+        { label: 'STATUS', value: 'ONLINE', detail: `${data.platform} • live`, active: true },
+        { label: 'MODEL', value: data.model, detail: data.gpu ? `GPU: ${data.gpu}` : 'GPU telemetry unavailable' },
+      ]
+    : [
+        { label: 'SYSTEM', value: isError ? 'OFFLINE' : isLoading ? 'LOADING' : 'UNKNOWN', detail: 'Waiting for system telemetry', active: !isError },
+      ];
   return (
     <>
       <style>{`

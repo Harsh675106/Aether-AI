@@ -5,6 +5,7 @@ export function useSystemSnapshot() {
   return useQuery({
     queryKey: ["system-snapshot"],
     queryFn: getSystemSnapshot,
+    refetchInterval: 2000,
+    refetchIntervalInBackground: true,
   });
 }
-

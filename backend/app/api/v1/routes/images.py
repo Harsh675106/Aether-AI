@@ -26,6 +26,26 @@ async def search_images(
     )
     return response.model_dump()
 
+
+@router.get('/images/history')
+async def list_image_history(
+    limit: int = Query(default=24, ge=1, le=100),
+    container: ApplicationContainer = Depends(get_container),
+) -> dict[str, object]:
+    entries = await container.image_search_service().list_history(limit=limit)
+    return {'entries': entries}
+
+
+@router.get('/images/history/{request_id}')
+async def get_image_history(
+    request_id: str,
+    container: ApplicationContainer = Depends(get_container),
+) -> dict[str, object]:
+    entry = await container.image_search_service().get_history(request_id)
+    if entry is None:
+        raise HTTPException(status_code=404, detail='Image request history was not found')
+    return entry
+
 @router.get('/images/download')
 async def download_image(url: str = Query(..., min_length=1, max_length=4096)) -> Response:
     parsed = urlparse(url)
