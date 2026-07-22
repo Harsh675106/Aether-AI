@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import re
 from dataclasses import dataclass
@@ -27,6 +27,7 @@ class IntentCategory(str, Enum):
     FOLLOW_UP_QUESTION = "Follow-up Question"
     FILE_ANALYSIS = "File Analysis"
     IMAGE_ANALYSIS = "Image Analysis"
+    IMAGE_SEARCH = "Image Search"
     LONG_CONVERSATION = "Long Conversation"
     RESEARCH = "Research"
 
@@ -128,6 +129,13 @@ class IntentClassifier:
         "react",
         "sql",
     }
+    IMAGE_SEARCH_PATTERNS = (
+        r"^\s*(show|find|search|display|open|pull up)\s+me\b",
+        r"^\s*(show|find|search|display|open|pull up)\s+(pictures?|images?|photos?|logos?|wallpapers?|screenshots?|portraits?|posters?|icons?|pics?)\b",
+        r"\b(pictures?|images?|photos?|logos?|wallpapers?|screenshots?|portraits?|posters?|icons?|pics?)\s+(of|for|about)\b",
+        r"\b(show|find|search|display|open)\b.*\b(pictures?|images?|photos?|logos?|wallpapers?|screenshots?|portraits?|posters?|icons?|pics?)\b",
+        r"\b(logo|wallpaper|wallpapers|screenshot|screenshots|portrait|portraits|poster|posters|icon|icons)\b",
+    )
 
     def classify(self, message: str, *, has_history: bool = False) -> IntentClassification:
         normalized = self._normalize(message)
@@ -145,6 +153,20 @@ class IntentClassifier:
 
         if self._matches_any(normalized, self.IDENTITY_PATTERNS):
             return IntentClassification(IntentCategory.IDENTITY_QUESTION, 98, False, False, "assistant identity question")
+
+        if self._matches_any(normalized, self.IMAGE_SEARCH_PATTERNS) or (
+            normalized.startswith(("show me ", "find me ", "show images of ", "show pictures of ", "find pictures of "))
+            and "how " not in normalized
+            and "why " not in normalized
+            and "explain " not in normalized
+        ):
+            return IntentClassification(
+                IntentCategory.IMAGE_SEARCH,
+                96,
+                False,
+                False,
+                "image search request",
+            )
 
         if self._matches_any(normalized, self.MEMORY_PATTERNS):
             return IntentClassification(IntentCategory.PERSONAL_MEMORY, 94, True, False, "personal or prior-context recall")

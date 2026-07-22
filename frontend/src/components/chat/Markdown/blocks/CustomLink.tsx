@@ -8,6 +8,10 @@ interface CustomLinkProps {
   children: React.ReactNode;
 }
 
+function isTauriDesktop() {
+  return typeof window !== "undefined" && ("__TAURI_INTERNALS__" in window || "__TAURI__" in window);
+}
+
 export function normalizeUrl(url?: string): string {
   if (!url) return "";
   const trimmed = url.trim();
@@ -28,19 +32,21 @@ export async function openExternalLink(href?: string) {
   }
 
   try {
-    const isTauri = typeof window !== "undefined" && ("__TAURI_INTERNALS__" in window || "__TAURI__" in window);
-    if (isTauri) {
+    if (isTauriDesktop()) {
       await open(targetUrl);
       return;
     }
 
     if (typeof window !== "undefined") {
-      window.open(targetUrl, "_blank", "noopener,noreferrer");
+      const popup = window.open(targetUrl, "_blank", "noopener,noreferrer");
+      if (!popup) {
+        window.location.assign(targetUrl);
+      }
     }
   } catch (err) {
-    console.warn("Failed to open link with Tauri shell, falling back to window.open:", err);
+    console.warn("Failed to open link with Tauri shell, falling back to browser navigation:", err);
     if (typeof window !== "undefined") {
-      window.open(targetUrl, "_blank", "noopener,noreferrer");
+      window.location.assign(targetUrl);
     }
   }
 }
@@ -48,17 +54,24 @@ export async function openExternalLink(href?: string) {
 export const CustomLink = React.memo(
   ({ href, children }: CustomLinkProps) => {
     const finalUrl = normalizeUrl(href);
+    const shouldHandleLocally = isTauriDesktop();
+
+    const handleClick = (event: React.MouseEvent<HTMLAnchorElement>) => {
+      if (!shouldHandleLocally) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      void openExternalLink(href);
+    };
 
     return (
       <motion.a
         href={finalUrl || "#"}
         target="_blank"
         rel="noopener noreferrer"
-        onClick={(event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          void openExternalLink(href);
-        }}
+        onClick={handleClick}
         whileHover={{ y: -1 }}
         whileTap={{ scale: 0.98 }}
         className="

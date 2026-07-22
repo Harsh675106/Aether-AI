@@ -47,8 +47,8 @@ describe("CustomLink & URL opening", () => {
       expect(tauriOpen).toHaveBeenCalledWith("https://www.google.com");
     });
 
-    it("falls back to window.open when running in browser context", async () => {
-      const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
+    it("opens links via window.open in browser context", async () => {
+      const openSpy = vi.spyOn(window, "open").mockImplementation(() => ({}) as Window);
 
       await openExternalLink("https://searxng.org");
       expect(openSpy).toHaveBeenCalledWith("https://searxng.org", "_blank", "noopener,noreferrer");
@@ -57,7 +57,7 @@ describe("CustomLink & URL opening", () => {
   });
 
   describe("CustomLink component & Markdown rendering", () => {
-    it("renders Markdown links and opens external URL when clicked", () => {
+    it("renders Markdown links and leaves browser-native navigation enabled", () => {
       const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
 
       render(<MarkdownMessage content="Check out [Aether AI](https://aether.ai) for details." />);
@@ -67,7 +67,7 @@ describe("CustomLink & URL opening", () => {
       expect(linkElement).toHaveAttribute("href", "https://aether.ai");
 
       fireEvent.click(linkElement);
-      expect(openSpy).toHaveBeenCalledWith("https://aether.ai", "_blank", "noopener,noreferrer");
+      expect(openSpy).not.toHaveBeenCalled();
       openSpy.mockRestore();
     });
 
@@ -83,7 +83,7 @@ describe("CustomLink & URL opening", () => {
       expect(link2).toHaveAttribute("href", "https://www.google.com");
 
       fireEvent.click(link2);
-      expect(openSpy).toHaveBeenCalledWith("https://www.google.com", "_blank", "noopener,noreferrer");
+      expect(openSpy).not.toHaveBeenCalled();
       openSpy.mockRestore();
     });
   });

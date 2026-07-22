@@ -1,8 +1,10 @@
-from dataclasses import dataclass, field
+﻿from dataclasses import dataclass, field
 
 from app.agents.planner import PlaceholderPlanner
 from app.chat.service import ChatService
 from app.core.settings import Settings
+from app.images.history_store import ImageHistoryStore
+from app.images.service import ImageSearchService, SearXNGImageSearchProvider
 from app.memory.chroma_manager import ChromaMemoryManager
 from app.memory.history_store import ConversationHistoryStore
 from app.monitoring.service import MonitoringService, get_monitoring_service
@@ -21,10 +23,7 @@ from app.workflow.engine import PlaceholderWorkflowEngine
 @dataclass
 class ApplicationContainer:
     settings: Settings
-    _monitoring_service: MonitoringService = field(
-        default_factory=get_monitoring_service,
-        init=False,
-    )
+    _monitoring_service: MonitoringService = field(default_factory=get_monitoring_service, init=False)
 
     def system_service(self) -> SystemService:
         return SystemService(settings=self.settings)
@@ -36,6 +35,7 @@ class ApplicationContainer:
             memory_manager=self.memory_manager(),
             web_search_client=self.web_search_client(),
             monitoring_service=self.monitoring_service(),
+            image_search_service=self.image_search_service(),
         )
 
     def planner(self) -> PlaceholderPlanner:
@@ -52,6 +52,16 @@ class ApplicationContainer:
 
     def web_content_extractor(self) -> WebContentExtractor:
         return WebContentExtractor()
+
+    def image_history_store(self) -> ImageHistoryStore:
+        return ImageHistoryStore(settings=self.settings)
+
+    def image_search_service(self) -> ImageSearchService:
+        return ImageSearchService(
+            provider=SearXNGImageSearchProvider(self.settings.searxng_base_url),
+            monitoring_service=self.monitoring_service(),
+            history_store=self.image_history_store(),
+        )
 
     def tool_manager(self) -> PlaceholderToolManager:
         return PlaceholderToolManager()

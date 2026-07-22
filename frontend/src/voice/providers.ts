@@ -1,4 +1,4 @@
-import { MULTILINGUAL_CONFIGS, findBestVoiceForLanguage, detectLanguageFromText } from "./languages";
+import { findBestVoiceForLanguage, type LanguageConfig } from "./languages";
 
 export type SpeechRecognitionSessionOptions = {
   language: string;
@@ -63,11 +63,23 @@ export class RegexWakeWordDetector {
       variants.add(collapsed.slice(1));
     }
 
-    // Include all wake word variants registered across language configs
-    for (const config of MULTILINGUAL_CONFIGS) {
-      for (const variant of config.wakeWordVariants) {
-        variants.add(variant.toLowerCase().trim());
-      }
+    // Include a conservative set of common misspellings/variants to reduce sensitivity
+    const extra = [
+      "ether",
+      "either",
+      "ither",
+      "aither",
+      "ayther",
+      "eyther",
+      "hey aether",
+      "hey ether",
+      "ok aether",
+      "hi aether",
+      "hello aether",
+    ];
+
+    for (const v of extra) {
+      variants.add(v.toLowerCase().trim());
     }
 
     return [...variants].filter(Boolean).sort((a, b) => b.length - a.length);
@@ -132,10 +144,15 @@ class BrowserSpeechRecognitionProvider implements SpeechToTextProvider {
 
     recognition.onerror = (event: any) => {
       const err = String(event?.error ?? event?.message ?? "").toLowerCase();
-      // Ignore non-fatal browser transient pauses / no-speech events
-      if (err.includes("aborted") || err.includes("no-speech") || err.includes("network")) {
+      if (!err) {
+        options.onError("Speech recognition encountered an issue.");
         return;
       }
+
+      if (err.includes("aborted")) {
+        return;
+      }
+
       options.onError(err || "Speech recognition encountered an issue.");
     };
 
@@ -237,9 +254,7 @@ class BrowserSpeechSynthesisProvider implements TextToSpeechProvider {
       }
 
       if (!utterance.voice) {
-        const langConfig =
-          MULTILINGUAL_CONFIGS.find((c) => c.code.toLowerCase() === options.language.toLowerCase()) ||
-          detectLanguageFromText(text);
+        const langConfig = ({ code: options.language || "en-US", name: options.language || "en-US", wakeWordVariants: [] } as unknown) as LanguageConfig;
         const bestVoice = findBestVoiceForLanguage(langConfig);
         if (bestVoice) {
           utterance.voice = bestVoice;

@@ -29,6 +29,41 @@ describe("AetherVoiceEngine", () => {
     });
   });
 
+  it("recovers from transient speech recognition errors by restarting listening", async () => {
+    vi.useFakeTimers();
+
+    const createdRecognitions: Array<any> = [];
+    Object.defineProperty(window, "SpeechRecognition", {
+      writable: true,
+      value: vi.fn().mockImplementation(() => {
+        const recognition = {
+          start: vi.fn(),
+          stop: vi.fn(),
+          abort: vi.fn(),
+        };
+        createdRecognitions.push(recognition);
+        return recognition;
+      }),
+    });
+
+    const engine = new AetherVoiceEngine({
+      chatTransport: {
+        sendMessage: vi.fn(),
+      },
+    });
+
+    await engine.start();
+    createdRecognitions[0].onerror?.({ error: "network" });
+
+    vi.advanceTimersByTime(400);
+    await Promise.resolve();
+
+    expect(engine.getState().phase).toBe("listening");
+    expect(createdRecognitions).toHaveLength(2);
+
+    vi.useRealTimers();
+  });
+
   it("initializes with default settings and state", () => {
     const engine = new AetherVoiceEngine({
       chatTransport: {
@@ -38,7 +73,7 @@ describe("AetherVoiceEngine", () => {
 
     const state = engine.getState();
     expect(state.phase).toBe("idle");
-    expect(state.wakeWord).toBe("Aether");
+    expect(state.wakeWord).toBe("");
     expect(state.supported).toBe(true);
     expect(state.listening).toBe(false);
   });
@@ -53,6 +88,21 @@ describe("AetherVoiceEngine", () => {
     await engine.start();
     const state = engine.getState();
     expect(state.sessionId).not.toBeNull();
+  });
+
+  it("does not stop on common interrupting phrases", async () => {
+    const sendMessage = vi.fn(() => new Promise<string | null>(() => {}));
+    const engine = new AetherVoiceEngine({
+      chatTransport: {
+        sendMessage,
+      },
+    });
+
+    await engine.start();
+    await (engine as any).handleSpokenCommand("stop listening");
+
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(engine.getState().phase).toBe("completed");
   });
 
   it("stops cleanly and resets listening state", async () => {

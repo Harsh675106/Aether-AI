@@ -18,7 +18,7 @@ export function ChatPanelAether() {
   const isVoiceRunning = voice.isRunning;
   const phase = voiceState.phase;
 
-  const isListening = voiceState.listening || phase === "listening" || phase === "waiting_for_wake_word" || phase === "wake_word_detected";
+  const isListening = voiceState.listening || phase === "listening";
   const isSpeaking = voiceState.speaking || phase === "speaking";
   const isProcessing = phase === "processing_speech" || phase === "sending_to_chatbot" || phase === "receiving_ai_response" || phase === "converting_to_speech";
 
@@ -38,17 +38,13 @@ export function ChatPanelAether() {
     const message = draft.trim();
     setDraft("");
     scrollToBottom("smooth");
-    await sendMessage(message);
+    await sendMessage(message, { source: "text" });
   };
 
   const getVoicePhaseLabel = () => {
     switch (phase) {
       case "starting":
         return "Initializing Voice...";
-      case "waiting_for_wake_word":
-        return `Waiting for Wake Word ("${voiceState.wakeWord}")...`;
-      case "wake_word_detected":
-        return `Wake Word Detected!`;
       case "listening":
         return "Listening for speech...";
       case "processing_speech":
@@ -252,7 +248,7 @@ export function ChatPanelAether() {
                         type="button"
                         onClick={() => void voice.stop()}
                         title="Cancel Voice Interaction"
-                        className="flex items-center justify-center h-6 w-6 rounded-full border border-black bg-black text-white-300 hover:bg-cyan-500 transition"
+                        className="flex items-center justify-center h-6 w-6 rounded-full border border-black bg-black text-white-300 hover:bg-gray-800 transition"
                       >
                         <Square className="h-3 w-3 fill-current" />
                       </button>
@@ -274,7 +270,7 @@ export function ChatPanelAether() {
                   onChange={(event) => setDraft(event.target.value)}
                   placeholder={
                     isVoiceRunning
-                      ? `Voice active. Say "${voiceState.wakeWord}" or type...`
+                      ? "Voice active. Speak naturally or type..."
                       : "Ask Aether anything..."
                   }
                   className="mt-2 w-full bg-transparent text-sm text-white outline-none placeholder:text-slate-200/60"

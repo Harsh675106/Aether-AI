@@ -1,15 +1,18 @@
 ﻿import { useCallback, useMemo, useRef, useState } from "react";
 
+import { useImageSearch } from "@/components/image-search";
 import type { ChatMessage } from "@/types/chat";
 
 const API_URL = import.meta.env.VITE_AETHER_API_URL ?? "http://localhost:8001/api/v1";
 
 type SendMessageOptions = {
   conversationId?: string;
+  source?: "text" | "voice";
   onDelta?: (delta: string, accumulated: string) => void;
 };
 
 export function useChat() {
+  const imageSearch = useImageSearch();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -52,6 +55,9 @@ export function useChat() {
           messages: [{ role: "user", content }],
           stream: true,
           conversation_id: options?.conversationId ?? "frontend-chat",
+          user_metadata: {
+            source: options?.source ?? "text",
+          },
         }),
         signal: controller.signal,
       });
@@ -87,6 +93,11 @@ export function useChat() {
 
           try {
             const parsed = JSON.parse(payload);
+            const imageSearchPayload = parsed.metadata?.image_search;
+            if (imageSearchPayload?.results?.length) {
+              imageSearch.openResults(imageSearchPayload);
+            }
+
             if (parsed.done) {
               break;
             }
@@ -127,7 +138,7 @@ export function useChat() {
     } finally {
       setIsStreaming(false);
     }
-  }, []);
+  }, [imageSearch]);
 
   const clearMessages = useCallback(() => {
     setMessages([]);

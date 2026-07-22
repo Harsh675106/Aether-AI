@@ -7,7 +7,7 @@ const createInitialState = (): VoiceState => ({
   phase: "idle",
   sessionId: null,
   correlationId: null,
-  wakeWord: "Aether",
+  wakeWord: "",
   transcript: "",
   response: "",
   supported: typeof window !== "undefined",

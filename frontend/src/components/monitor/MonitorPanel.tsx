@@ -1,12 +1,35 @@
-import { motion, AnimatePresence } from "framer-motion";
-import { Waves, Mic, Volume2, Cpu, CheckCircle2, AlertTriangle, ArrowDown } from "lucide-react";
+﻿import { motion, AnimatePresence } from "framer-motion";
+import { Waves, Mic, Volume2, Cpu, CheckCircle2, AlertTriangle, ArrowDown, Image as ImageIcon } from "lucide-react";
 
 import { useMonitoring } from "@/hooks/useMonitoring";
 import { useSmartScroll } from "@/hooks/useSmartScroll";
 import type { MonitoringEvent } from "@/types/monitoring";
 
 function getEventTone(event: MonitoringEvent) {
+  const isImage = event.subsystem === "images" || event.category === "image";
   const isVoice = event.subsystem === "voice" || event.category === "voice";
+
+  if (isImage) {
+    if (event.severity === "error" || event.event_type.includes("error")) {
+      return {
+        dot: "bg-rose-500",
+        text: "text-rose-300",
+        glow: "shadow-[0_0_18px_rgba(244,63,94,0.55)]",
+        label: "IMAGE ERROR",
+        icon: <AlertTriangle className="h-3 w-3 inline text-rose-300" />,
+        badgeStyle: "border-rose-500/30 bg-rose-500/10 text-rose-200",
+      };
+    }
+
+    return {
+      dot: "bg-cyan-400",
+      text: "text-cyan-200",
+      glow: "shadow-[0_0_18px_rgba(56,189,248,0.55)]",
+      label: "IMAGE",
+      icon: <ImageIcon className="h-3 w-3 inline text-cyan-200" />,
+      badgeStyle: "border-cyan-400/30 bg-cyan-500/10 text-cyan-100",
+    };
+  }
 
   if (isVoice) {
     const type = event.event_type;

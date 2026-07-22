@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import re
 import time
@@ -27,6 +27,7 @@ from app.web.search import (
     WebContentExtractor,
     WebSearchPipeline,
 )
+from app.images.service import ImageSearchService
 
 logger = get_logger(__name__)
 
@@ -35,6 +36,7 @@ logger = get_logger(__name__)
 class OrchestrationDecision:
     use_memory: bool = False
     use_web_search: bool = False
+    use_image_search: bool = False
     use_tools: bool = False
 
 
@@ -89,6 +91,7 @@ class ConversationOrchestrator:
         web_search_client: SearXNGClient | None = None,
         web_content_extractor: WebContentExtractor | None = None,
         web_search_pipeline: WebSearchPipeline | None = None,
+        image_search_service: ImageSearchService | None = None,
         search_decision_engine: object | None = None,
         monitoring_service: MonitoringService | None = None,
         confidence_threshold: float = 0.55,
@@ -103,6 +106,8 @@ class ConversationOrchestrator:
         self._web_search_pipeline = web_search_pipeline or WebSearchPipeline(
             search_client=self._web_search_client
         )
+        self._image_search_service = image_search_service
+        self._pending_image_search_metadata: dict[str, Any] | None = None
         self._monitoring_service = monitoring_service
         self._confidence_analyzer = ResponseConfidenceAnalyzer()
 
@@ -116,6 +121,10 @@ class ConversationOrchestrator:
         self._confidence_threshold = confidence_threshold
         self._max_history_messages = max_history_messages
 
+    def pop_image_search_metadata(self) -> dict[str, Any] | None:
+        payload = self._pending_image_search_metadata
+        self._pending_image_search_metadata = None
+        return payload
     def decide(self, messages: list[dict[str, str]]) -> OrchestrationDecision:
         """Compatibility shim for existing tests and callers."""
         user_query = self._last_user_message(messages)
@@ -123,7 +132,9 @@ class ConversationOrchestrator:
         intent = self._intent_classifier.classify(user_query, has_history=has_history)
         decision = self._routing_engine.decide(intent)
         return OrchestrationDecision(
-            use_memory=decision.use_memory, use_web_search=decision.use_search
+            use_memory=decision.use_memory,
+            use_web_search=decision.use_search,
+            use_image_search=decision.use_image_search,
         )
 
     async def stream_response(
@@ -135,6 +146,7 @@ class ConversationOrchestrator:
         temperature: float | None = None,
         max_tokens: int | None = None,
         top_p: float | None = None,
+        request_source: str | None = None,
     ) -> AsyncIterator[str]:
         started_at = self._monitoring_logger.start_timer()
         await self._monitoring_logger.request_received(
@@ -155,6 +167,7 @@ class ConversationOrchestrator:
         )
 
         metadata.details["routing_confidence"] = decision.confidence
+        metadata.details["request_source"] = request_source
 
         response_parts: list[str] = []
         citations: list[dict[str, Any]] = []
@@ -164,6 +177,43 @@ class ConversationOrchestrator:
             if direct_response is not None:
                 response_parts.append(direct_response)
                 yield direct_response
+                await self._monitoring_logger.response_ready(
+                    conversation_id=conversation_id,
+                    metadata=metadata,
+                )
+                return
+
+            if decision.use_image_search:
+                image_service = self._image_search_service
+                if image_service is None:
+                    fallback = "Image search is not configured right now."
+                    response_parts.append(fallback)
+                    yield fallback
+                    return
+
+                image_response = await image_service.search(
+                    user_query,
+                    limit=12,
+                    conversation_id=conversation_id,
+                    request_source=request_source,
+                )
+                image_metadata = {
+                    "query": image_response.query,
+                    "request_source": image_response.request_source,
+                    "provider": image_response.provider,
+                    "results": [result.model_dump() for result in image_response.results],
+                }
+                metadata.details["image_search"] = image_metadata
+                metadata.details["image_result_count"] = len(image_response.results)
+                metadata.details["route"] = {"image_search": True}
+                self._pending_image_search_metadata = image_metadata
+                confirmation = (
+                    "I found several images for your request. They are displayed in the Image Viewer."
+                    if image_response.results
+                    else "I could not find reliable image results for that request right now."
+                )
+                response_parts.append(confirmation)
+                yield confirmation
                 await self._monitoring_logger.response_ready(
                     conversation_id=conversation_id,
                     metadata=metadata,
@@ -219,6 +269,7 @@ class ConversationOrchestrator:
                             "route": {
                                 "memory": decision.use_memory,
                                 "search": decision.use_search,
+                                "image_search": decision.use_image_search,
                                 "ollama": decision.use_ollama,
                             },
                         },

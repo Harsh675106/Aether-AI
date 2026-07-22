@@ -1,15 +1,12 @@
 export interface LanguageConfig {
-  code: string;               // BCP-47 tag (e.g. 'en-IN', 'en-US', 'en-GB')
-  name: string;               // Human name (e.g. 'English (India)')
-  scriptRegex: RegExp;        // Regex to identify script character content
-  wakeWordVariants: string[]; // Variations of "Aether"
-  voiceKeywords: string[];    // Priority keywords to filter matching SpeechSynthesis voices
+  code: string;
+  name: string;
+  wakeWordVariants: string[];
 }
 
 export const INDIAN_ENGLISH_CONFIG: LanguageConfig = {
   code: "en-IN",
   name: "English (India)",
-  scriptRegex: /^[a-zA-Z0-9\s,.:;!?'-]+$/,
   wakeWordVariants: [
     "aether",
     "ether",
@@ -22,168 +19,104 @@ export const INDIAN_ENGLISH_CONFIG: LanguageConfig = {
     "hi aether",
     "hello aether",
   ],
-  voiceKeywords: [
-    "neerja",
-    "prabhat",
-    "heera",
-    "ravi",
-    "veena",
-    "karan",
-    "ananya",
-    "rishi",
-    "india",
-    "indian",
-    "en-in",
-  ],
 };
 
 export const US_ENGLISH_CONFIG: LanguageConfig = {
   code: "en-US",
   name: "English (US)",
-  scriptRegex: /^[a-zA-Z0-9\s,.:;!?'-]+$/,
-  wakeWordVariants: ["aether", "hey aether", "ok aether", "hi aether"],
-  voiceKeywords: [
-    "aria",
-    "guy",
-    "jenny",
-    "samantha",
-    "alex",
-    "google us english",
-    "natural",
-    "neural",
-    "en-us",
-  ],
-};
-
-export const UK_ENGLISH_CONFIG: LanguageConfig = {
-  code: "en-GB",
-  name: "English (UK)",
-  scriptRegex: /^[a-zA-Z0-9\s,.:;!?'-]+$/,
-  wakeWordVariants: ["aether", "hey aether", "ok aether", "hi aether"],
-  voiceKeywords: [
-    "sonia",
-    "ryan",
-    "oliver",
-    "serena",
-    "google uk english female",
-    "google uk english male",
-    "en-gb",
+  wakeWordVariants: [
+    "aether",
+    "ether",
+    "either",
+    "ather",
+    "eyther",
+    "hey aether",
+    "hey ether",
+    "ok aether",
+    "hi aether",
+    "hello aether",
   ],
 };
 
 export const HINDI_CONFIG: LanguageConfig = {
   code: "hi-IN",
-  name: "Hindi",
-  scriptRegex: /[\u0900-\u097F]/,
+  name: "Hindi (India)",
   wakeWordVariants: [
     "aether",
     "ether",
-    "eyther",
-    "hey aether",
-    "namaste aether",
-    "suno aether",
-  ],
-  voiceKeywords: [
-    "google हिन्दी",
-    "hi-in",
-    "hindi",
-    "swara",
-    "madhur",
-    "kalpana",
-    "hemant",
+    "ather",
+    "एथर",
+    "हे एथर",
+    "नमस्ते एथर",
   ],
 };
 
 export const MULTILINGUAL_CONFIGS: LanguageConfig[] = [
   INDIAN_ENGLISH_CONFIG,
   US_ENGLISH_CONFIG,
-  UK_ENGLISH_CONFIG,
   HINDI_CONFIG,
 ];
 
-export function detectLanguageFromText(text?: string): LanguageConfig {
-  if (!text || !text.trim()) {
-    return INDIAN_ENGLISH_CONFIG;
-  }
+// Preferred voice (change this if you prefer another installed voice)
+const PREFERRED_VOICE = "Microsoft Ravi Online (Natural)";
 
-  // Check for Devanagari script content (Hindi)
-  if (HINDI_CONFIG.scriptRegex.test(text)) {
+export function detectLanguageFromText(text?: string): LanguageConfig {
+  if (!text) return INDIAN_ENGLISH_CONFIG;
+  if (/[\u0900-\u097F]/.test(text)) {
     return HINDI_CONFIG;
   }
-
   return INDIAN_ENGLISH_CONFIG;
 }
 
-/**
- * Ranks available SpeechSynthesis voices by quality and accent match.
- * Prioritizes high-definition (Natural, Neural, Google, Apple, Microsoft) voices.
- */
 export function scoreVoiceQuality(voice: SpeechSynthesisVoice, langConfig: LanguageConfig): number {
   let score = 0;
-  const vName = voice.name.toLowerCase();
-  const vLang = voice.lang.toLowerCase();
-  const targetCode = langConfig.code.toLowerCase();
-  const targetLangPrefix = targetCode.split("-")[0];
+  const vLang = voice.lang ? voice.lang.toLowerCase() : "";
+  const targetLang = langConfig.code.toLowerCase();
 
-  // Exact BCP-47 tag match
-  if (vLang === targetCode) {
+  if (vLang === targetLang) {
     score += 50;
-  } else if (vLang.startsWith(targetLangPrefix)) {
+  } else if (vLang.split("-")[0] === targetLang.split("-")[0]) {
+    score += 20;
+  }
+
+  const vName = voice.name ? voice.name.toLowerCase() : "";
+  if (voice.name === PREFERRED_VOICE) {
+    score += 100;
+  }
+  if (vName.includes("natural") || vName.includes("online")) {
     score += 30;
-  }
-
-  // Keyword match for requested accent
-  for (const keyword of langConfig.voiceKeywords) {
-    if (vName.includes(keyword.toLowerCase())) {
-      score += 25;
-      break;
-    }
-  }
-
-  // Quality multipliers for natural / neural / premium voices
-  if (vName.includes("natural") || vName.includes("neural")) {
-    score += 35;
-  }
-  if (vName.includes("google")) {
-    score += 25;
-  }
-  if (vName.includes("microsoft") || vName.includes("apple")) {
-    score += 15;
   }
   if (voice.localService) {
     score += 10;
-  }
-  if (voice.default) {
-    score += 5;
   }
 
   return score;
 }
 
 export function findBestVoiceForLanguage(
-  langConfig: LanguageConfig = INDIAN_ENGLISH_CONFIG
+  langConfig: LanguageConfig = INDIAN_ENGLISH_CONFIG,
 ): SpeechSynthesisVoice | null {
-  if (typeof window === "undefined" || !window.speechSynthesis) {
+  if (typeof window === "undefined" || !("speechSynthesis" in window)) {
     return null;
   }
 
   const voices = window.speechSynthesis.getVoices();
-  if (!voices || voices.length === 0) {
+
+  if (!voices.length) {
     return null;
   }
 
-  const langPrefix = langConfig.code.toLowerCase().split("-")[0];
-  const candidates = voices.filter((v) => {
-    const vLang = v.lang.toLowerCase();
-    return vLang.startsWith(langPrefix) || vLang.startsWith("en");
-  });
+  let bestVoice: SpeechSynthesisVoice | null = null;
+  let maxScore = -1;
 
-  if (candidates.length === 0) {
-    return voices[0] || null;
+  for (const voice of voices) {
+    const score = scoreVoiceQuality(voice, langConfig);
+    if (score > maxScore) {
+      maxScore = score;
+      bestVoice = voice;
+    }
   }
 
-  // Sort candidates by quality score descending
-  candidates.sort((a, b) => scoreVoiceQuality(b, langConfig) - scoreVoiceQuality(a, langConfig));
-
-  return candidates[0] || null;
+  return bestVoice ?? voices[0] ?? null;
 }
+

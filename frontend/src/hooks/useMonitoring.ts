@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import type { MonitoringEvent } from "@/types/monitoring";
 import { subscribeVoiceMonitoringEvents } from "@/voice/monitoring";
@@ -6,7 +6,22 @@ import { subscribeVoiceMonitoringEvents } from "@/voice/monitoring";
 const API_BASE = import.meta.env.VITE_AETHER_API_URL ?? "http://localhost:8001/api/v1";
 const WS_URL = import.meta.env.VITE_AETHER_WS_URL ?? API_BASE.replace(/^http/, "ws").replace(/\/api\/v1$/, "/api/v1/monitoring/ws");
 
+function isDuplicate(last: MonitoringEvent | undefined, incoming: MonitoringEvent): boolean {
+  if (!last) return false;
+  if (last.event_id === incoming.event_id) return true;
+  return (
+    last.event_type === incoming.event_type &&
+    last.title === incoming.title &&
+    last.status === incoming.status &&
+    last.description === incoming.description
+  );
+}
+
 function appendEvent(current: MonitoringEvent[], incoming: MonitoringEvent): MonitoringEvent[] {
+  const last = current[current.length - 1];
+  if (isDuplicate(last, incoming)) {
+    return current;
+  }
   const exists = current.some((item) => item.event_id === incoming.event_id);
   return exists ? current : [...current, incoming].slice(-80);
 }

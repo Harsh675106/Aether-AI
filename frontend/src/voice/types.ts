@@ -1,10 +1,8 @@
-import type { MonitoringEvent } from "@/types/monitoring";
+﻿import type { MonitoringEvent } from "@/types/monitoring";
 
 export type VoicePhase =
   | "idle"
   | "starting"
-  | "waiting_for_wake_word"
-  | "wake_word_detected"
   | "listening"
   | "processing_speech"
   | "sending_to_chatbot"
