@@ -143,9 +143,12 @@ class MonitoringService:
         self._subscribers.add(queue)
 
         async def iterator() -> AsyncIterator[dict[str, Any]]:
-            while True:
-                payload = await queue.get()
-                yield payload
+            try:
+                while True:
+                    payload = await queue.get()
+                    yield payload
+            finally:
+                self._subscribers.discard(queue)
 
         return iterator()
 

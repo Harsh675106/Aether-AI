@@ -213,7 +213,10 @@ class ImageSearchService:
 
     async def _safe_search(self, query: str, *, limit: int) -> list[dict[str, Any]]:
         try:
-            return await self.provider.search(query, limit=limit)
+            await self._publish_event('image.api_request', 'Image search API requested', f'Querying the image provider for: {query}', details={'query': query, 'limit': limit, 'provider': 'searxng'})
+            results = await self.provider.search(query, limit=limit)
+            await self._publish_event('image.api_response', 'Image search API returned', f'Image provider returned {len(results)} candidates.', severity='success', status='complete', details={'query': query, 'result_count': len(results), 'provider': 'searxng'})
+            return results
         except Exception as exc:  # pragma: no cover - defensive guard
             logger.warning("image_search_failed", exc_info=exc)
             await self._publish_event(
@@ -282,6 +285,7 @@ class ImageSearchService:
     async def _looks_reachable(self, url: str) -> bool:
         if not url:
             return False
+        await self._publish_event('image.source_visit', 'Image source visited', f'Checking image source availability: {url}', details={'url': url, 'visit_type': 'validation'})
         headers = {"User-Agent": "AetherAI/1.0", "Accept": "image/*,*/*;q=0.8"}
         timeout = httpx.Timeout(8.0, connect=4.0)
         try:

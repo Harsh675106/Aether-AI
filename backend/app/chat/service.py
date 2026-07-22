@@ -54,7 +54,10 @@ class ChatService:
 
         provider = OllamaProvider(settings)
         search_client = web_search_client or SearXNGClient(settings.searxng_base_url)
-        search_pipeline = WebSearchPipeline(search_client=search_client)
+        search_pipeline = WebSearchPipeline(
+            search_client=search_client,
+            monitoring_service=monitoring_service,
+        )
         image_search_service = image_search_service or ImageSearchService(
             provider=SearXNGImageSearchProvider(settings.searxng_base_url),
             monitoring_service=monitoring_service,

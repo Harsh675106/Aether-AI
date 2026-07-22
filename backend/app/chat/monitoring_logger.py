@@ -41,6 +41,11 @@ class MonitoringLogger:
             details={"message_count": message_count},
         )
 
+    async def pipeline_stage(self, *, event_type: str, title: str, description: str, conversation_id: str | None, details: dict[str, Any] | None = None, status: str = 'running', severity: str = 'info') -> None:
+        if self._service is None:
+            return
+        await self._service.publish_event(event_type=event_type, subsystem='chat', severity=severity, category='conversation', title=title, description=description, status=status, correlation_id=conversation_id, details=details)
+
     async def response_ready(self, *, conversation_id: str | None, metadata: PipelineMetadata) -> None:
         if self._service is None:
             return

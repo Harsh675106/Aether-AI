@@ -13,6 +13,8 @@ from urllib.parse import urlparse
 import httpx
 from bs4 import BeautifulSoup
 
+from app.monitoring.service import MonitoringService
+
 
 
 @dataclass(frozen=True)
@@ -885,9 +887,11 @@ class WebSearchPipeline:
         context_builder: ContextBuilder | None = None,
         citation_builder: CitationBuilder | None = None,
         decision_engine: SearchDecisionEngine | None = None,
+        monitoring_service: MonitoringService | None = None,
     ) -> None:
         self._decision_engine = decision_engine or SearchDecisionEngine()
         self._search_client = search_client
+        self._monitoring_service = monitoring_service
         self._ranking_service = ranking_service or RankingService()
         self._retrieval_service = retrieval_service or RetrievalService()
         self._context_builder = context_builder or ContextBuilder()
@@ -903,6 +907,7 @@ class WebSearchPipeline:
 
     async def run_with_evidence(self, query: str, *, limit: int = 5) -> tuple[str, list[dict[str, Any]], EvidenceValidationResult]:
         normalized_query = self._normalize_query(query)
+        await self._publish_event('web.search_started', 'Web search started', f'Searching the web for: {query}', details={'query': query, 'limit': limit})
         if normalized_query:
             cached = self._cache.get(normalized_query)
             if cached is not None:
@@ -928,7 +933,9 @@ class WebSearchPipeline:
                 query_variants = [query]
             search_query = self._decision_engine.optimize_query(query_variants[0]) or query_variants[0]
             try:
+                await self._publish_event('web.search_request', 'Search provider requested', f'Querying the web for: {search_query}', details={'query': search_query, 'attempt': attempt + 1, 'limit': limit})
                 raw_results = await self._search_client.search(search_query, limit=limit)
+                await self._publish_event('web.search_results', 'Search results received', f'Received {len(raw_results)} results from the web provider.', status='complete', severity='success', details={'query': search_query, 'result_count': len(raw_results)})
             except Exception:
                 self._audit_log.append({"event": "search_failed", "query": search_query, "reason": "search request failed"})
                 continue
@@ -982,6 +989,11 @@ class WebSearchPipeline:
 
         self._audit_log.append({"event": "search_failed", "query": query, "reason": "no evidence after retries"})
         return "I couldn't verify this from reliable sources.", [], EvidenceValidationResult(supported=False, reason="no evidence after retries")
+
+    async def _publish_event(self, event_type: str, title: str, description: str, *, severity: str = 'info', status: str = 'running', correlation_id: str | None = None, details: dict[str, Any] | None = None) -> None:
+        if self._monitoring_service is None:
+            return
+        await self._monitoring_service.publish_event(event_type=event_type, subsystem='web', severity=severity, category='search', title=title, description=description, status=status, correlation_id=correlation_id, details=details)
 
     def _normalize_query(self, query: str) -> str:
         return re.sub(r"\s+", " ", query.strip().lower())

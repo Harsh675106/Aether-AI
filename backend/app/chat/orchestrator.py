@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import re
 import time
@@ -168,6 +168,14 @@ class ConversationOrchestrator:
 
         metadata.details["routing_confidence"] = decision.confidence
         metadata.details["request_source"] = request_source
+        await self._monitoring_logger.pipeline_stage(
+            event_type='chat.routing',
+            title='Chat route selected',
+            description=f'Request classified as {intent.category.value}.',
+            conversation_id=conversation_id,
+            details={'intent': intent.category.value, 'use_memory': decision.use_memory, 'use_search': decision.use_search, 'use_ollama': decision.use_ollama, 'confidence': decision.confidence, 'reason': decision.reason},
+            status='complete',
+        )
 
         response_parts: list[str] = []
         citations: list[dict[str, Any]] = []
@@ -229,6 +237,14 @@ class ConversationOrchestrator:
                 else f"Skipped ({memory_result.skipped_reason})"
             )
 
+            await self._monitoring_logger.pipeline_stage(
+                event_type='chat.memory_completed',
+                title='Memory lookup completed',
+                description=metadata.memory,
+                conversation_id=conversation_id,
+                details={'enabled': decision.use_memory, 'result_count': memory_result.result_count},
+                status='complete',
+            )
             web_context = ""
             if decision.use_search:
                 web_context, citations, validation = await self._fallback_manager.search_with_retry(
@@ -244,6 +260,16 @@ class ConversationOrchestrator:
                     supported=False, reason="search skipped by router"
                 )
 
+            await self._monitoring_logger.pipeline_stage(
+                event_type='chat.search_completed',
+                title='Web search stage completed',
+                description=f'Web search returned {len(citations)} usable sources.',
+                conversation_id=conversation_id,
+                details={'validation': validation.reason, 'source_count': len(citations)},
+                status='complete' if validation.supported else 'error',
+                severity='success' if validation.supported else 'warning',
+            )
+
             if decision.use_search and not validation.supported:
                 fallback = "I could not verify this from reliable current sources, so I won't guess. Please try again when search is available or ask for a non-current explanation."
                 response_parts.append(fallback)
@@ -252,6 +278,13 @@ class ConversationOrchestrator:
 
             metadata.ollama = "Used" if decision.use_ollama else "Skipped"
             if decision.use_ollama:
+                await self._monitoring_logger.pipeline_stage(
+                    event_type='chat.model_started',
+                    title='Model generation started',
+                    description='Generating a response with the configured language model.',
+                    conversation_id=conversation_id,
+                    details={'provider': 'ollama', 'temperature': temperature, 'max_tokens': max_tokens},
+                )
                 generated_chunks: list[str] = []
                 async for chunk in self._response_generator.stream(
                     GenerationContext(
@@ -281,6 +314,15 @@ class ConversationOrchestrator:
 
                 # Validate generated response confidence
                 generated_response = "".join(generated_chunks).strip()
+                await self._monitoring_logger.pipeline_stage(
+                    event_type='chat.model_completed',
+                    title='Model generation completed',
+                    description=f'Generated {len(generated_response)} response characters.',
+                    conversation_id=conversation_id,
+                    details={'response_length': len(generated_response)},
+                    status='complete',
+                    severity='success',
+                )
                 if not generated_response:
                     logger.warning(
                         "empty_llm_response"
