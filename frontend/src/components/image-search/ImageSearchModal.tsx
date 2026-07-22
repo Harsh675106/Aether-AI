@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   Check,
@@ -14,6 +14,7 @@ import {
 
 import { useImageSearch } from "./ImageSearchProvider";
 import { publishVoiceMonitoringEvent } from "@/voice/monitoring";
+import { openExternalLink } from "@/components/chat/Markdown/blocks/CustomLink";
 
 function publishImageEvent(event_type: string, title: string, description: string, details: Record<string, unknown>) {
   publishVoiceMonitoringEvent({
@@ -28,6 +29,7 @@ function publishImageEvent(event_type: string, title: string, description: strin
   });
 }
 
+const API_URL = import.meta.env.VITE_AETHER_API_URL ?? "http://localhost:8001/api/v1";
 function safeFilename(title: string) {
   return (title || "image").replace(/[^a-z0-9-_]+/gi, "_").replace(/_+/g, "_").replace(/^_|_$/g, "");
 }
@@ -100,18 +102,15 @@ export function ImageSearchModal() {
     });
 
     try {
-      const response = await fetch(activeImage.image_url, { mode: "cors" });
-      const blob = await response.blob();
-      const blobUrl = URL.createObjectURL(blob);
+      const downloadUrl = API_URL + "/images/download?url=" + encodeURIComponent(activeImage.image_url);
       const link = document.createElement("a");
-      link.href = blobUrl;
-      link.download = `${safeFilename(activeImage.title)}.jpg`;
+      link.href = downloadUrl;
+      link.download = safeFilename(activeImage.title) + ".jpg";
       document.body.appendChild(link);
       link.click();
       link.remove();
-      window.setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
     } catch {
-      window.open(activeImage.image_url, "_blank", "noopener,noreferrer");
+      await openExternalLink(activeImage.image_url);
     }
   };
 
@@ -143,7 +142,7 @@ export function ImageSearchModal() {
       source_url: activeImage.source_url,
       source_site: activeImage.source_site,
     });
-    window.open(activeImage.source_url, "_blank", "noopener,noreferrer");
+    void openExternalLink(activeImage.source_url);
   };
 
   const previewText = useMemo(() => {
@@ -184,7 +183,7 @@ export function ImageSearchModal() {
               <h2 className="mt-1 truncate text-lg font-semibold text-white sm:text-2xl">{viewer.query || "Image Search"}</h2>
               <p className="mt-1 text-xs uppercase tracking-[0.3em] text-white/45">
                 {viewer.results.length} result{viewer.results.length === 1 ? "" : "s"}
-                {viewer.requestSource ? ` · ${viewer.requestSource}` : ""}
+                {viewer.requestSource ? ` � ${viewer.requestSource}` : ""}
               </p>
             </div>
 
