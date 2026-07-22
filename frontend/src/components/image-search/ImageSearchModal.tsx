@@ -166,7 +166,7 @@ export function ImageSearchModal() {
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
-        className="fixed inset-0 z-[90] flex items-center justify-center bg-[rgba(2,6,23,0.78)] p-3 sm:p-6 backdrop-blur-2xl"
+        className="fixed inset-0 z-[90] flex items-center justify-center bg-transparent p-3 sm:p-6"
         onClick={close}
       >
         <motion.div
@@ -175,7 +175,7 @@ export function ImageSearchModal() {
           exit={{ opacity: 0, y: 20, scale: 0.96 }}
           transition={{ duration: 0.28, ease: "easeOut" }}
           onClick={(event) => event.stopPropagation()}
-          className="relative flex max-h-[92vh] w-full max-w-7xl flex-col overflow-hidden rounded-[2rem] border border-cyan-300/20 bg-[rgba(7,12,24,0.92)] shadow-[0_30px_120px_rgba(2,132,199,0.22)]"
+          className="relative flex max-h-[92vh] w-full max-w-7xl flex-col overflow-hidden rounded-[2rem] border border-cyan-300/20 bg-[rgba(4,16,28,0.93)] shadow-[0_30px_120px_rgba(2,132,199,0.22)]"
         >
           <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(56,189,248,0.12),transparent_40%),radial-gradient(circle_at_bottom_right,_rgba(59,130,246,0.1),transparent_28%)]" />
           <div className="relative flex items-center justify-between gap-3 border-b border-white/10 px-4 py-3 sm:px-6">
@@ -199,8 +199,8 @@ export function ImageSearchModal() {
           </div>
 
           <div className="relative flex min-h-0 flex-1 flex-col gap-4 overflow-hidden p-4 sm:p-5 lg:flex-row">
-            <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-[1.75rem] border border-white/10 bg-black/20 p-4">
-              <div className="relative flex min-h-[18rem] flex-1 items-center justify-center overflow-hidden rounded-[1.5rem] border border-white/10 bg-[rgba(2,6,23,0.55)]">
+            <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-[1.75rem] border border-white/10 bg-transparent p-4">
+              <div className="relative flex min-h-[18rem] flex-1 items-center justify-center overflow-hidden rounded-[1.5rem] border border-white/10 bg-transparent">
                 {activeImage ? (
                   errored[activeImage.image_url] ? (
                     <div className="flex max-w-md flex-col items-center gap-3 px-6 text-center text-white/70">

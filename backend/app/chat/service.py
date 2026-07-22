@@ -48,13 +48,14 @@ class ChatService:
         memory_manager: PlaceholderMemoryManager | None = None,
         web_search_client: SearXNGClient | None = None,
         monitoring_service: MonitoringService | None = None,
+        image_search_service: ImageSearchService | None = None,
     ) -> "ChatService":
         logger.info("initializing_chat_service")
 
         provider = OllamaProvider(settings)
         search_client = web_search_client or SearXNGClient(settings.searxng_base_url)
         search_pipeline = WebSearchPipeline(search_client=search_client)
-        image_search_service = ImageSearchService(
+        image_search_service = image_search_service or ImageSearchService(
             provider=SearXNGImageSearchProvider(settings.searxng_base_url),
             monitoring_service=monitoring_service,
         )
