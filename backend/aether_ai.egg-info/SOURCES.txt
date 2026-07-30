@@ -91,6 +91,7 @@ app/api/v1/router.py
 app/api/v1/routes/__init__.py
 app/api/v1/routes/chat.py
 app/api/v1/routes/health.py
+app/api/v1/routes/images.py
 app/api/v1/routes/monitoring.py
 app/api/v1/routes/system.py
 app/chat/__init__.py
@@ -113,6 +114,10 @@ app/database/base.py
 app/database/chroma.py
 app/database/redis.py
 app/database/session.py
+app/images/__init__.py
+app/images/history_store.py
+app/images/schemas.py
+app/images/service.py
 app/llm/__init__.py
 app/llm/ollama_provider.py
 app/llm/provider_manager.py

@@ -3,6 +3,7 @@ Name: aether-ai
 Version: 0.1.0
 Summary: Backend foundation for the Aether AI desktop operating system assistant.
 Requires-Python: >=3.13
+Requires-Dist: psutil>=6.0.0
 Requires-Dist: alembic>=1.13.2
 Requires-Dist: asyncpg>=0.29.0
 Requires-Dist: beautifulsoup4>=4.12.0
