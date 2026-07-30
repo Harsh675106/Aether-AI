@@ -1,4 +1,5 @@
-﻿from dataclasses import dataclass, field
+from dataclasses import dataclass, field
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from app.agents.planner import PlaceholderPlanner
 from app.chat.service import ChatService
@@ -44,8 +45,16 @@ class ApplicationContainer:
     def memory_manager(self) -> ChromaMemoryManager:
         return ChromaMemoryManager(settings=self.settings)
 
+    def database_engine(self) -> AsyncEngine:
+        from app.database.session import create_engine
+        return create_engine(self.settings)
+
+    def session_factory(self) -> async_sessionmaker[AsyncSession]:
+        from app.database.session import create_session_factory
+        return create_session_factory(self.database_engine())
+
     def history_store(self) -> ConversationHistoryStore:
-        return ConversationHistoryStore(self.settings.conversation_history_db)
+        return ConversationHistoryStore(self.session_factory())
 
     def web_search_client(self) -> SearXNGClient:
         return SearXNGClient(self.settings.searxng_base_url)

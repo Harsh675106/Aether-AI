@@ -47,14 +47,15 @@ export function BottomNavbar() {
 
         <div className="relative flex flex-wrap items-center justify-center gap-8 text-[11px] uppercase tracking-[0.28em] text-slate-200">
           <button
-            type='button'
+            type="button"
             onClick={() => void openHistory()}
-            className='group relative inline-flex items-center gap-2 rounded-full border border-cyan-300/30 bg-cyan-400/10 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.3em] text-cyan-100 transition duration-300 hover:border-cyan-200/60 hover:bg-cyan-400/20 hover:shadow-[0_0_18px_rgba(56,189,248,0.28)]'
-            aria-label='Reopen image history'
-            title='Reopen stored image requests'
+            className="group relative inline-flex items-center gap-2 rounded-full border border-white/10 bg-slate-950/15 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.3em] text-white transition duration-300 ease-in-out hover:border-white/30 hover:bg-slate-950/25 hover:text-white hover:shadow-[0_0_18px_rgba(56,189,248,0.28)]"
+            aria-label="Reopen image history"
+            title="Reopen stored image requests"
           >
-            <Images className='h-4 w-4' />
-            Images{history.length ? '(' + history.length + ')' : ''}
+            <Images className="h-4 w-4" />
+            Images{history.length ? ` (${history.length})` : ""}
+            <span className="pointer-events-none absolute inset-x-0 bottom-0 h-0.5 scale-x-0 rounded-full bg-gradient-to-r from-white via-cyan-300 to-blue-500 opacity-0 transition duration-300 ease-in-out group-hover:scale-x-100 group-hover:opacity-90" />
           </button>
           {navItems.map((item) => (
             <button

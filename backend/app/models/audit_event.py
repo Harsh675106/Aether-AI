@@ -14,6 +14,6 @@ class AuditEvent(Base):
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     actor: Mapped[str] = mapped_column(String(128), nullable=False)
     action: Mapped[str] = mapped_column(String(128), nullable=False)
-    metadata: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    event_metadata: Mapped[dict[str, Any]] = mapped_column("metadata", JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 

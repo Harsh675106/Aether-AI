@@ -1,83 +1,73 @@
 from __future__ import annotations
 
-import sqlite3
-from pathlib import Path
+import uuid
 from typing import Any
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
+from app.models.conversation import Conversation, Message
 
 
 class ConversationHistoryStore:
-    """Persist chat history in a lightweight SQLite store."""
+    """Persist chat history in a lightweight SQLite/PostgreSQL store using SQLAlchemy."""
 
-    def __init__(self, db_path: str | None = None) -> None:
-        self.db_path = Path(db_path or "./data/conversations.sqlite3")
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._initialize()
+    def __init__(self, session_factory_or_db_path: async_sessionmaker[AsyncSession] | str) -> None:
+        if isinstance(session_factory_or_db_path, str):
+            db_path = session_factory_or_db_path
+            if not (db_path.startswith("sqlite") or db_path.startswith("postgresql")):
+                db_path = f"sqlite+aiosqlite:///{db_path}"
+            self._engine = create_async_engine(db_path)
+            self.session_factory = async_sessionmaker(self._engine, expire_on_commit=False)
+            self._needs_init = True
+        else:
+            self.session_factory = session_factory_or_db_path
+            self._engine = None
+            self._needs_init = False
 
-    def _initialize(self) -> None:
-        with sqlite3.connect(self.db_path) as conn:
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS conversations (
-                    id TEXT PRIMARY KEY,
-                    title TEXT NOT NULL,
-                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-                )
-                """
-            )
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS messages (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    conversation_id TEXT NOT NULL,
-                    role TEXT NOT NULL,
-                    content TEXT NOT NULL,
-                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY(conversation_id) REFERENCES conversations(id)
-                )
-                """
-            )
-            conn.commit()
+    async def _ensure_initialized(self) -> None:
+        if self._needs_init and self._engine is not None:
+            from app.database.base import Base
+            async with self._engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+            self._needs_init = False
 
-    def create_conversation(self, title: str) -> str:
-        import uuid
-
+    async def create_conversation(self, title: str) -> str:
+        await self._ensure_initialized()
         conversation_id = str(uuid.uuid4())
-        with sqlite3.connect(self.db_path) as conn:
-            conn.execute(
-                "INSERT INTO conversations (id, title) VALUES (?, ?)",
-                (conversation_id, title),
-            )
-            conn.commit()
+        async with self.session_factory() as session:
+            async with session.begin():
+                conversation = Conversation(id=conversation_id, title=title)
+                session.add(conversation)
         return conversation_id
 
-    def ensure_conversation(self, conversation_id: str, *, title: str = "conversation") -> None:
-        with sqlite3.connect(self.db_path) as conn:
-            row = conn.execute(
-                "SELECT 1 FROM conversations WHERE id = ?",
-                (conversation_id,),
-            ).fetchone()
-            if row is None:
-                conn.execute(
-                    "INSERT INTO conversations (id, title) VALUES (?, ?)",
-                    (conversation_id, title),
+    async def ensure_conversation(self, conversation_id: str, *, title: str = "conversation") -> None:
+        await self._ensure_initialized()
+        async with self.session_factory() as session:
+            async with session.begin():
+                result = await session.execute(
+                    select(Conversation).where(Conversation.id == conversation_id)
                 )
-                conn.commit()
+                if result.scalar_one_or_none() is None:
+                    conversation = Conversation(id=conversation_id, title=title)
+                    session.add(conversation)
 
-    def append_message(self, conversation_id: str, role: str, content: str) -> None:
-        self.ensure_conversation(conversation_id)
-        with sqlite3.connect(self.db_path) as conn:
-            conn.execute(
-                "INSERT INTO messages (conversation_id, role, content) VALUES (?, ?, ?)",
-                (conversation_id, role, content),
+    async def append_message(self, conversation_id: str, role: str, content: str) -> None:
+        await self._ensure_initialized()
+        await self.ensure_conversation(conversation_id)
+        async with self.session_factory() as session:
+            async with session.begin():
+                message = Message(conversation_id=conversation_id, role=role, content=content)
+                session.add(message)
+
+    async def get_conversation(self, conversation_id: str) -> list[dict[str, Any]] | None:
+        await self._ensure_initialized()
+        async with self.session_factory() as session:
+            result = await session.execute(
+                select(Message)
+                .where(Message.conversation_id == conversation_id)
+                .order_by(Message.id.asc())
             )
-            conn.commit()
-
-    def get_conversation(self, conversation_id: str) -> list[dict[str, Any]] | None:
-        with sqlite3.connect(self.db_path) as conn:
-            rows = conn.execute(
-                "SELECT role, content FROM messages WHERE conversation_id = ? ORDER BY id ASC",
-                (conversation_id,),
-            ).fetchall()
-        if not rows:
-            return None
-        return [{"role": role, "content": content} for role, content in rows]
+            messages = result.scalars().all()
+            if not messages:
+                return None
+            return [{"role": msg.role, "content": msg.content} for msg in messages]

@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import hashlib
 from collections.abc import Mapping
@@ -16,10 +16,18 @@ class ChromaMemoryManager(MemoryManager):
 
     def __init__(self, settings: Settings | None = None) -> None:
         self.settings = settings or Settings()
-        self.client = chromadb.PersistentClient(
-            path=getattr(self.settings, "chroma_persist_directory", "./data/chroma"),
-            settings=ChromaSettings(allow_reset=True),
-        )
+        mode = getattr(self.settings, "chroma_mode", "local")
+        if mode == "http":
+            self.client = chromadb.HttpClient(
+                host=getattr(self.settings, "chroma_host", "localhost"),
+                port=getattr(self.settings, "chroma_port", 8001),
+                settings=ChromaSettings(allow_reset=True),
+            )
+        else:
+            self.client = chromadb.PersistentClient(
+                path=getattr(self.settings, "chroma_persist_directory", "./data/chroma"),
+                settings=ChromaSettings(allow_reset=True),
+            )
         self.collection = self.client.get_or_create_collection(
             name=getattr(self.settings, "chroma_collection_name", "aether_memories")
         )
@@ -42,7 +50,11 @@ class ChromaMemoryManager(MemoryManager):
         if not query.strip():
             return []
 
-        results = self.collection.query(query_texts=[query], n_results=limit, include=["documents", "metadatas", "distances"])
+        results = self.collection.query(
+            query_texts=[query],
+            n_results=limit,
+            include=["documents", "metadatas", "distances"],
+        )
         documents = results.get("documents", [[]])[0]
         metadatas = results.get("metadatas", [[]])[0]
         distances = results.get("distances", [[]])[0]
@@ -50,5 +62,3 @@ class ChromaMemoryManager(MemoryManager):
             {"content": document, "metadata": metadata, "distance": distance}
             for document, metadata, distance in zip(documents, metadatas, distances, strict=False)
         ]
-
-

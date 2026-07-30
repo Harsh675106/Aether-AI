@@ -154,7 +154,7 @@ class ConversationOrchestrator:
         )
 
         user_query = self._last_user_message(messages)
-        history_messages = self._load_history(messages, conversation_id)
+        history_messages = await self._load_history(messages, conversation_id)
         intent = self._intent_classifier.classify(user_query, has_history=bool(history_messages))
         decision = self._routing_engine.decide(intent)
         metadata = PipelineMetadata(
@@ -401,7 +401,7 @@ class ConversationOrchestrator:
             yield fallback
         finally:
             full_response = "".join(response_parts)
-            self._persist_conversation(conversation_id, user_query, full_response)
+            await self._persist_conversation(conversation_id, user_query, full_response)
             metadata.latency_ms = int((time.perf_counter() - started_at) * 1000)
             metadata.sources = self._unique_source_count(citations)
             await self._monitoring_logger.response_ready(
@@ -425,12 +425,12 @@ class ConversationOrchestrator:
             "",
         )
 
-    def _load_history(
+    async def _load_history(
         self, messages: list[dict[str, str]], conversation_id: str | None
     ) -> list[ChatMessage]:
         history: list[ChatMessage] = []
         if conversation_id and self._history_store is not None:
-            stored_history = self._history_store.get_conversation(conversation_id) or []
+            stored_history = (await self._history_store.get_conversation(conversation_id)) or []
             history.extend(
                 ChatMessage(role=message["role"], content=message["content"])
                 for message in stored_history
@@ -457,14 +457,14 @@ class ConversationOrchestrator:
         )
         return f"{recent}\nFollow-up question: {query}"
 
-    def _persist_conversation(
+    async def _persist_conversation(
         self, conversation_id: str | None, user_query: str, assistant_response: str
     ) -> None:
         if not conversation_id or self._history_store is None or not user_query:
             return
-        self._history_store.ensure_conversation(conversation_id, title="conversation")
-        self._history_store.append_message(conversation_id, "user", user_query)
-        self._history_store.append_message(conversation_id, "assistant", assistant_response)
+        await self._history_store.ensure_conversation(conversation_id, title="conversation")
+        await self._history_store.append_message(conversation_id, "user", user_query)
+        await self._history_store.append_message(conversation_id, "assistant", assistant_response)
 
     def _deduplicate_citations(self, citations: list[dict[str, Any]]) -> list[dict[str, Any]]:
         seen: set[str] = set()

@@ -8,6 +8,7 @@ from app.api.v1.router import api_router
 from app.core.container import ApplicationContainer
 from app.core.logging import configure_logging, get_logger
 from app.core.settings import get_settings
+from app.database.session import init_db
 from app.middleware.exception_handler import register_exception_handlers
 from app.middleware.request_id import RequestIdMiddleware
 
@@ -18,7 +19,12 @@ logger = get_logger(__name__)
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
     configure_logging(settings)
-    app.state.container = ApplicationContainer(settings=settings)
+    container = ApplicationContainer(settings=settings)
+    app.state.container = container
+    
+    # Initialize database tables
+    await init_db(container.database_engine())
+    
     logger.info("application_started", environment=settings.environment)
     yield
     logger.info("application_shutdown")

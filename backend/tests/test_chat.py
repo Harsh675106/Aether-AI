@@ -1,4 +1,4 @@
-﻿from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -96,9 +96,9 @@ def test_default_cors_origins_include_local_frontend_hosts() -> None:
 @pytest.mark.asyncio
 async def test_orchestrator_uses_history_and_memory(tmp_path: Path) -> None:
     history_store = ConversationHistoryStore(str(tmp_path / "history.sqlite3"))
-    conversation_id = history_store.create_conversation("demo")
-    history_store.append_message(conversation_id, "user", "Earlier question")
-    history_store.append_message(conversation_id, "assistant", "Earlier answer")
+    conversation_id = await history_store.create_conversation("demo")
+    await history_store.append_message(conversation_id, "user", "Earlier question")
+    await history_store.append_message(conversation_id, "assistant", "Earlier answer")
 
     provider = FakeProvider()
     orchestrator = ConversationOrchestrator(

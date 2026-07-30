@@ -19,6 +19,7 @@ Requires-Dist: pydantic-settings>=2.4.0
 Requires-Dist: python-dotenv>=1.0.1
 Requires-Dist: redis>=5.0.8
 Requires-Dist: sqlalchemy[asyncio]>=2.0.32
+Requires-Dist: aiosqlite>=0.20.0
 Requires-Dist: structlog>=24.4.0
 Requires-Dist: uvicorn[standard]>=0.30.6
 Provides-Extra: dev

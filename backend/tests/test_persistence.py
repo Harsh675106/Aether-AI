@@ -11,7 +11,9 @@ from app.web.search import WebContentExtractor
 
 @pytest.mark.asyncio
 async def test_memory_store_and_search(tmp_path: Path) -> None:
-    settings = Settings(chroma_persist_directory=str(tmp_path / "chroma"), chroma_collection_name="test-memory")
+    settings = Settings(
+        chroma_persist_directory=str(tmp_path / "chroma"), chroma_collection_name="test-memory"
+    )
     manager = ChromaMemoryManager(settings=settings)
 
     await manager.record_event(
@@ -28,15 +30,16 @@ async def test_memory_store_and_search(tmp_path: Path) -> None:
     assert any("Python" in item["content"] for item in results)
 
 
-def test_conversation_history_store_round_trip(tmp_path: Path) -> None:
+@pytest.mark.asyncio
+async def test_conversation_history_store_round_trip(tmp_path: Path) -> None:
     db_path = tmp_path / "history.sqlite3"
     store = ConversationHistoryStore(str(db_path))
 
-    conversation_id = store.create_conversation("demo")
-    store.append_message(conversation_id, "user", "Hello")
-    store.append_message(conversation_id, "assistant", "Hi there")
+    conversation_id = await store.create_conversation("demo")
+    await store.append_message(conversation_id, "user", "Hello")
+    await store.append_message(conversation_id, "assistant", "Hi there")
 
-    history = store.get_conversation(conversation_id)
+    history = await store.get_conversation(conversation_id)
 
     assert history is not None
     assert [message["content"] for message in history] == ["Hello", "Hi there"]
