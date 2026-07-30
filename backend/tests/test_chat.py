@@ -114,9 +114,8 @@ async def test_orchestrator_uses_history_and_memory(tmp_path: Path) -> None:
     ):
         continue
 
-    prompt = provider.prompts[-1]
-    assert "Earlier question" in prompt
-    assert "User likes Python" in prompt
+    assert any("Earlier question" in prompt for prompt in provider.prompts)
+    assert any("User likes Python" in prompt for prompt in provider.prompts)
 
 
 def test_response_generator_prompt_requests_markdown_structure_and_emojis() -> None:
@@ -202,5 +201,133 @@ async def test_orchestrator_searches_before_model_for_current_questions() -> Non
     assert provider.stream_calls == 1
     assert "Search context: the latest release was announced in 2026." in provider.prompts[-1]
     assert any("## Sources" in part for part in response_parts)
+
+
+def test_is_personal_recall_helper() -> None:
+    from app.chat.memory_manager import RelevantMemoryManager
+    from app.memory.manager import PlaceholderMemoryManager
+    
+    rmm = RelevantMemoryManager(PlaceholderMemoryManager())
+    assert rmm._is_personal_recall("what am I studying now?") is True
+    assert rmm._is_personal_recall("what is my name?") is True
+    assert rmm._is_personal_recall("What programming language does the user like?") is True
+    assert rmm._is_personal_recall("Do birds fly?") is False
+
+
+class RecordingMemoryManager:
+    def __init__(self) -> None:
+        self.events: list[dict] = []
+        
+    async def record_event(self, event: dict) -> None:
+        self.events.append(event)
+        
+    async def search_semantic(self, query: str, *, limit: int = 3) -> list[dict]:
+        return []
+
+
+class FactsProvider:
+    async def complete(self, prompt: str, *, metadata: object | None = None) -> str:
+        return "The user's name is Harsh.\nThe user is studying computer science.\nNONE\n"
+
+    async def stream_complete(self, prompt: str, *, metadata: object | None = None):
+        yield "The user's name is Harsh.\nThe user is studying computer science.\nNONE\n"
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_extracts_and_saves_memories(tmp_path: Path) -> None:
+    history_store = ConversationHistoryStore(str(tmp_path / "history.sqlite3"))
+    provider = FactsProvider()
+    memory_manager = RecordingMemoryManager()
+    orchestrator = ConversationOrchestrator(
+        llm_provider=provider,
+        settings=Settings(),
+        memory_manager=memory_manager,
+        history_store=history_store,
+    )
+    
+    await orchestrator._persist_conversation("conv-123", "My name is Harsh and I study computer science", "Nice to meet you Harsh.")
+    
+    assert len(memory_manager.events) == 2
+    assert memory_manager.events[0]["content"] == "The user's name is Harsh"
+    assert memory_manager.events[0]["conversation_id"] == "conv-123"
+    assert memory_manager.events[1]["content"] == "The user is studying computer science"
+
+
+def test_should_extract_memory() -> None:
+    from app.chat.intent import IntentCategory
+    orchestrator = ConversationOrchestrator(
+        llm_provider=FactsProvider(),
+        settings=Settings(),
+        memory_manager=RecordingMemoryManager(),
+    )
+    
+    assert orchestrator._should_extract_memory(IntentCategory.GREETING, "hi") is False
+    assert orchestrator._should_extract_memory(IntentCategory.WEATHER, "weather in Paris") is False
+    assert orchestrator._should_extract_memory(IntentCategory.PERSONAL_MEMORY, "explain OOP") is False
+    assert orchestrator._should_extract_memory(IntentCategory.PERSONAL_MEMORY, "remember that I study computer science") is True
+
+
+class DuplicateMemoryManager:
+    def __init__(self, distance: float) -> None:
+        self.distance = distance
+        self.events: list[dict] = []
+        
+    async def record_event(self, event: dict) -> None:
+        self.events.append(event)
+        
+    async def search_semantic(self, query: str, *, limit: int = 3) -> list[dict]:
+        return [{"content": "The user's name is Harsh", "distance": self.distance}]
+
+
+@pytest.mark.asyncio
+async def test_no_duplicate_memory_recording(tmp_path: Path) -> None:
+    history_store = ConversationHistoryStore(str(tmp_path / "history.sqlite3"))
+    provider = FactsProvider()
+    
+    # Under distance threshold (0.25), should skip recording
+    dup_manager = DuplicateMemoryManager(distance=0.1)
+    orchestrator = ConversationOrchestrator(
+        llm_provider=provider,
+        settings=Settings(),
+        memory_manager=dup_manager,
+        history_store=history_store,
+    )
+    await orchestrator._persist_conversation("conv-123", "My name is Harsh", "Nice to meet you Harsh.")
+    assert len(dup_manager.events) == 0
+
+    # Over distance threshold, should record
+    diff_manager = DuplicateMemoryManager(distance=0.6)
+    orchestrator2 = ConversationOrchestrator(
+        llm_provider=provider,
+        settings=Settings(),
+        memory_manager=diff_manager,
+        history_store=history_store,
+    )
+    await orchestrator2._persist_conversation("conv-123", "My name is Harsh", "Nice to meet you Harsh.")
+    assert len(diff_manager.events) == 2
+
+
+def test_history_cleaning_removes_filler() -> None:
+    from app.chat.prompt_builder import PromptBuilder, PromptContext
+    from app.chat.schemas import ChatMessage
+    
+    builder = PromptBuilder()
+    history = [
+        ChatMessage(role="user", content="hello"),
+        ChatMessage(role="assistant", content="Hello! How can I help you today?"),
+        ChatMessage(role="user", content="My name is Harsh"),
+        ChatMessage(role="assistant", content="Nice to meet you Harsh"),
+        ChatMessage(role="user", content="thanks"),
+        ChatMessage(role="user", content="ok"),
+    ]
+    prompt = builder.build(PromptContext(history=history))
+    
+    assert "User: My name is Harsh" in prompt
+    assert "Assistant: Nice to meet you Harsh" in prompt
+    assert "User: hello" not in prompt
+    assert "User: thanks" not in prompt
+    assert "User: ok" not in prompt
+
+
 
 

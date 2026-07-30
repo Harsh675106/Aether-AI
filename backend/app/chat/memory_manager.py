@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -63,8 +63,18 @@ class RelevantMemoryManager:
         return relevant[:3]
 
     def _is_personal_recall(self, query: str) -> bool:
+        import re
         lowered = query.lower()
-        return any(term in lowered for term in ("my name", "what did i tell", "remember", "previous", "earlier", "continue", "do i like", "language"))
+        words = set(re.findall(r"[a-z0-9]+", lowered))
+        personal_words = {
+            "i", "me", "my", "myself", "name", "remember", "recall", "study", 
+            "studying", "student", "work", "working", "doing", "live", 
+            "living", "hobbies", "hobby", "preference", "preferences", "interest", 
+            "interests", "am"
+        }
+        if words & personal_words:
+            return True
+        return any(term in lowered for term in ("what did i tell", "previous", "earlier", "continue", "language"))
 
     def _tokens(self, text: str) -> set[str]:
         import re

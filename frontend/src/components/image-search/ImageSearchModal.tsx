@@ -40,6 +40,7 @@ export function ImageSearchModal() {
   const [errored, setErrored] = useState<Record<string, boolean>>({});
   const [copyState, setCopyState] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [downloaded, setDownloaded] = useState(false);
 
   const activeImage = viewer.results[viewer.activeIndex] ?? null;
 
@@ -121,6 +122,15 @@ export function ImageSearchModal() {
     }
   };
 
+  const handleDownload = async () => {
+  await downloadImage(); // Your existing download function
+
+  setDownloaded(true);
+
+  setTimeout(() => {
+    setDownloaded(false);
+  }, 2000);
+};
   const copyImageUrl = async () => {
     if (!activeImage) {
       return;
@@ -343,13 +353,26 @@ export function ImageSearchModal() {
                   {activeImage && (
                     <div className="mt-4 flex flex-wrap items-center gap-2">
                       <button
-                        type="button"
-                        onClick={downloadImage}
-                        className="inline-flex items-center gap-2 rounded-full border border-cyan-400/20 bg-cyan-400/10 px-4 py-2 text-xs font-medium uppercase tracking-[0.22em] text-cyan-100 transition hover:bg-cyan-400/20"
-                      >
-                        <Download className="h-4 w-4" />
-                        Download
-                      </button>
+  type="button"
+  onClick={handleDownload}
+  className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-xs font-medium uppercase tracking-[0.22em] transition duration-300 ${
+    downloaded
+      ? "border-emerald-400/30 bg-emerald-400/15 text-emerald-100"
+      : "border-cyan-400/20 bg-cyan-400/10 text-cyan-100 hover:bg-cyan-400/20"
+  }`}
+>
+  {downloaded ? (
+    <>
+      <Check className="h-4 w-4" />
+      Downloaded
+    </>
+  ) : (
+    <>
+      <Download className="h-4 w-4" />
+      Download
+    </>
+  )}
+</button>
                       <button
                         type="button"
                         onClick={openSource}

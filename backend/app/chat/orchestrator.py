@@ -401,7 +401,7 @@ class ConversationOrchestrator:
             yield fallback
         finally:
             full_response = "".join(response_parts)
-            await self._persist_conversation(conversation_id, user_query, full_response)
+            await self._persist_conversation(conversation_id, user_query, full_response, intent_category=intent.category)
             metadata.latency_ms = int((time.perf_counter() - started_at) * 1000)
             metadata.sources = self._unique_source_count(citations)
             await self._monitoring_logger.response_ready(
@@ -458,13 +458,93 @@ class ConversationOrchestrator:
         return f"{recent}\nFollow-up question: {query}"
 
     async def _persist_conversation(
-        self, conversation_id: str | None, user_query: str, assistant_response: str
+        self, conversation_id: str | None, user_query: str, assistant_response: str, intent_category: IntentCategory | None = None
     ) -> None:
         if not conversation_id or self._history_store is None or not user_query:
             return
         await self._history_store.ensure_conversation(conversation_id, title="conversation")
         await self._history_store.append_message(conversation_id, "user", user_query)
         await self._history_store.append_message(conversation_id, "assistant", assistant_response)
+        await self._extract_and_save_memories(conversation_id, user_query, assistant_response, intent_category)
+
+    def _should_extract_memory(self, intent_category: IntentCategory | None, query: str) -> bool:
+        if intent_category is not None:
+            ignore_categories = {
+                IntentCategory.GREETING,
+                IntentCategory.WEATHER,
+                IntentCategory.FINANCE,
+                IntentCategory.SPORTS,
+                IntentCategory.NEWS,
+                IntentCategory.IMAGE_SEARCH,
+                IntentCategory.LOCAL_SEARCH,
+                IntentCategory.TIME_SENSITIVE_QUESTION,
+            }
+            if intent_category in ignore_categories:
+                return False
+
+        import re
+        lowered = query.lower()
+        words = set(re.findall(r"[a-z0-9]+", lowered))
+        personal_indicators = {
+            "i", "me", "my", "myself", "name", "remember", "recall", "study", 
+            "studying", "student", "work", "working", "doing", "live", 
+            "living", "hobbies", "hobby", "preference", "preferences", "interest", 
+            "interests", "am", "like", "dislike", "prefer", "born", "background"
+        }
+        return bool(words & personal_indicators)
+
+    async def _extract_and_save_memories(
+        self, conversation_id: str, user_query: str, assistant_response: str, intent_category: IntentCategory | None = None
+    ) -> None:
+        if not self._memory_manager or isinstance(self._memory_manager, PlaceholderMemoryManager):
+            return
+
+        if not self._should_extract_memory(intent_category, user_query):
+            logger.info("memory_extraction_skipped_non_personal", extra={"query": user_query})
+            return
+
+        prompt = (
+            "You are a memory extraction assistant. Analyze the user's message and the assistant's response to extract specific facts, preferences, or profile details about the user that are worth remembering for future conversations.\n\n"
+            "Guidelines:\n"
+            "- Only extract facts about the user (e.g., name, profession, studies, hobbies, preferences, goals, background).\n"
+            "- Avoid general facts, conversational filler, or temporary statements (e.g., 'The user is greeting the assistant').\n"
+            "- Express each fact as a simple, standalone declarative sentence starting with 'The user...' or 'User...'. Do not use pronouns like 'I' or 'you'.\n"
+            "- If there are no long-term facts, preferences, or details about the user in this turn, return exactly the word: NONE\n\n"
+            f"User: {user_query}\n"
+            f"Assistant: {assistant_response}\n\n"
+            "Extracted facts:"
+        )
+
+        try:
+            extracted = await self._llm_provider.complete(prompt)
+            if not extracted:
+                return
+
+            facts = [
+                line.strip("- *").strip()
+                for line in extracted.splitlines()
+                if line.strip()
+            ]
+
+            for fact in facts:
+                cleaned_fact = fact.strip(".-* ")
+                if cleaned_fact and cleaned_fact.upper() != "NONE" and "user" in cleaned_fact.lower():
+                    # Deduplication check
+                    existing = await self._memory_manager.search_semantic(cleaned_fact, limit=1)
+                    if existing:
+                        distance = existing[0].get("distance")
+                        if distance is not None and float(distance) < 0.25:
+                            logger.info("memory_duplicate_skipped", extra={"fact": cleaned_fact, "distance": distance})
+                            continue
+
+                    await self._memory_manager.record_event({
+                        "content": cleaned_fact,
+                        "source": "conversation",
+                        "conversation_id": conversation_id,
+                    })
+                    logger.info("memory_saved", extra={"conversation_id": conversation_id, "fact": cleaned_fact})
+        except Exception as exc:
+            logger.warning("failed_to_extract_or_save_memory", exc_info=exc)
 
     def _deduplicate_citations(self, citations: list[dict[str, Any]]) -> list[dict[str, Any]]:
         seen: set[str] = set()

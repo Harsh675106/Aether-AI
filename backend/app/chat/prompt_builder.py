@@ -110,7 +110,16 @@ class PromptBuilder:
         # ---------------------------------------------------------
 
         if context.history:
-            history = context.history[-self.MAX_HISTORY_MESSAGES :]
+            cleaned_history = []
+            for message in context.history:
+                content_lower = message.content.strip().lower()
+                if message.role == "user" and content_lower in {"hi", "hello", "hey", "namaste", "thanks", "thank you", "ok", "okay"}:
+                    continue
+                if message.role == "assistant" and content_lower in {"hello! how can i help you today?", "hello", "hi"}:
+                    continue
+                cleaned_history.append(message)
+
+            history = cleaned_history[-self.MAX_HISTORY_MESSAGES :]
 
             history_text = "\n".join(
                 f"{message.role.capitalize()}: {message.content}"
