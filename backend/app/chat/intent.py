@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import re
 from dataclasses import dataclass
@@ -30,6 +30,8 @@ class IntentCategory(str, Enum):
     IMAGE_SEARCH = "Image Search"
     LONG_CONVERSATION = "Long Conversation"
     RESEARCH = "Research"
+    BROWSER_ACTION = "Browser Action"
+
 
 
 @dataclass(frozen=True)
@@ -136,6 +138,16 @@ class IntentClassifier:
         r"\b(show|find|search|display|open)\b.*\b(pictures?|images?|photos?|logos?|wallpapers?|screenshots?|portraits?|posters?|icons?|pics?)\b",
         r"\b(logo|wallpaper|wallpapers|screenshot|screenshots|portrait|portraits|poster|posters|icon|icons)\b",
     )
+    BROWSER_PATTERNS = (
+        r"\b(open|goto|go to|navigate to|visit)\b.*\b(https?://)?([a-zA-Z0-9-]+\.[a-zA-Z]{2,})\b",
+        r"\b(launch|start|open|close|restart|shutdown)\b.*\b(browser|chromium|chrome|tab|page)\b",
+        r"\b(screenshot|capture|screen shot|take a screenshot)\b",
+        r"\b(download|save|rename)\b.*\b(file|attachment|downloading)\b",
+        r"\b(click|press|type|input|fill|select)\b.*\b(button|input|selector|field|form|text)\b",
+        r"\b(go back|navigate back|go forward|reload page|refresh page)\b",
+        r"^(https?://)?([a-zA-Z0-9-]+\.[a-zA-Z]{2,})(/.*)?$",
+    )
+
 
     def classify(self, message: str, *, has_history: bool = False) -> IntentClassification:
         normalized = self._normalize(message)
@@ -153,6 +165,18 @@ class IntentClassifier:
 
         if self._matches_any(normalized, self.IDENTITY_PATTERNS):
             return IntentClassification(IntentCategory.IDENTITY_QUESTION, 98, False, False, "assistant identity question")
+
+        if self._matches_any(normalized, self.BROWSER_PATTERNS) or any(
+            t in normalized for t in ("youtube.com", "google.com", "github.com", "wikipedia.org", "yahoo.com", "reddit.com", "netflix.com")
+        ):
+            return IntentClassification(
+                IntentCategory.BROWSER_ACTION,
+                97,
+                False,
+                False,
+                "browser command or website navigation request"
+            )
+
 
         if self._matches_any(normalized, self.IMAGE_SEARCH_PATTERNS) or (
             normalized.startswith(("show me ", "find me ", "show images of ", "show pictures of ", "find pictures of "))

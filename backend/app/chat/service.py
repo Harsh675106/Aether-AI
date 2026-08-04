@@ -1,8 +1,10 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import time
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
+from typing import Any
+
 
 from fastapi import HTTPException
 
@@ -49,6 +51,9 @@ class ChatService:
         web_search_client: SearXNGClient | None = None,
         monitoring_service: MonitoringService | None = None,
         image_search_service: ImageSearchService | None = None,
+        planner: Any = None,
+        tool_manager: Any = None,
+        browser_service: Any = None,
     ) -> "ChatService":
         logger.info("initializing_chat_service")
 
@@ -72,6 +77,9 @@ class ChatService:
             web_search_pipeline=search_pipeline,
             image_search_service=image_search_service,
             monitoring_service=monitoring_service,
+            planner=planner,
+            tool_manager=tool_manager,
+            browser_service=browser_service,
         )
 
         return cls(orchestrator=orchestrator, monitoring_service=monitoring_service)

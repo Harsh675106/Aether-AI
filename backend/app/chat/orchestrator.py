@@ -13,13 +13,15 @@ from app.chat.monitoring_logger import MonitoringLogger, PipelineMetadata
 from app.chat.response_generator import GenerationContext, ResponseGenerator
 from app.chat.routing import RoutingDecision, RoutingEngine
 from app.chat.schemas import ChatMessage
-from app.core.interfaces import LLMProvider, MemoryManager
+from app.core.interfaces import LLMProvider, MemoryManager, Planner, ToolManager
 from app.core.logging import get_logger
 from app.core.settings import Settings
 from app.memory.history_store import ConversationHistoryStore
 from app.memory.manager import PlaceholderMemoryManager
 from app.monitoring.service import MonitoringService
 from app.chat.confidence import ResponseConfidenceAnalyzer
+from app.browser.service import BrowserService
+
 from app.web.search import (
     CitationBuilder,
     EvidenceValidationResult,
@@ -96,6 +98,9 @@ class ConversationOrchestrator:
         monitoring_service: MonitoringService | None = None,
         confidence_threshold: float = 0.55,
         max_history_messages: int = 20,
+        planner: Planner | None = None,
+        tool_manager: ToolManager | None = None,
+        browser_service: BrowserService | None = None,
     ) -> None:
         self._llm_provider = llm_provider
         self._memory_manager = memory_manager or PlaceholderMemoryManager()
@@ -110,6 +115,14 @@ class ConversationOrchestrator:
         self._pending_image_search_metadata: dict[str, Any] | None = None
         self._monitoring_service = monitoring_service
         self._confidence_analyzer = ResponseConfidenceAnalyzer()
+
+        # Dynamic fallback imports to prevent circular issues
+        from app.agents.planner import PlaceholderPlanner
+        from app.tools.manager import PlaceholderToolManager
+
+        self._planner = planner or PlaceholderPlanner(settings, llm_provider)
+        self._tool_manager = tool_manager or PlaceholderToolManager()
+        self._browser_service = browser_service
 
         self._intent_classifier = IntentClassifier()
         self._routing_engine = RoutingEngine()
@@ -185,6 +198,116 @@ class ConversationOrchestrator:
             if direct_response is not None:
                 response_parts.append(direct_response)
                 yield direct_response
+                await self._monitoring_logger.response_ready(
+                    conversation_id=conversation_id,
+                    metadata=metadata,
+                )
+                return
+
+            if decision.use_planner:
+                await self._monitoring_logger.pipeline_stage(
+                    event_type='chat.planner_started',
+                    title='Planner Execution Started',
+                    description=f"Formulating a browser action plan for: '{user_query}'",
+                    conversation_id=conversation_id,
+                    details={'objective': user_query},
+                )
+                
+                update = "Launching browser...\n"
+                response_parts.append(update)
+                yield update
+
+                try:
+                    plan_steps = await self._planner.create_plan(user_query)
+                    metadata.details["plan_steps"] = list(plan_steps)
+                except Exception as exc:
+                    logger.error("planner_creation_failed", error=str(exc))
+                    err_msg = "\nUnable to formulate a plan for this browser action.\n"
+                    response_parts.append(err_msg)
+                    yield err_msg
+                    return
+
+                await self._monitoring_logger.pipeline_stage(
+                    event_type='chat.planner_completed',
+                    title='Planner Formulated Plan',
+                    description=f"Generated {len(plan_steps)} actions to execute.",
+                    conversation_id=conversation_id,
+                    details={'plan_steps': list(plan_steps)},
+                    status='complete'
+                )
+
+                for step in plan_steps:
+                    if ":" in step:
+                        action, target = step.split(":", 1)
+                    else:
+                        action, target = step, ""
+
+                    friendly_action = action.replace("_", " ").title()
+                    if action == "open":
+                        friendly_update = f"Navigating to {target}...\n"
+                    elif action == "screenshot":
+                        friendly_update = f"Capturing screenshot ({target} view)...\n"
+                    elif action == "click":
+                        friendly_update = f"Clicking element: {target}...\n"
+                    elif action == "type":
+                        friendly_update = f"Typing into element...\n"
+                    else:
+                        friendly_update = f"Running browser operation: {friendly_action}...\n"
+
+                    response_parts.append(friendly_update)
+                    yield friendly_update
+
+                    try:
+                        tool_name = f"browser_{action}"
+                        tool_args = {"url": target, "selector": target, "text": target}
+                        if action == "screenshot":
+                            tool_args["full_page"] = (target == "full")
+                        elif action == "type" and "|" in target:
+                            sel, val = target.split("|", 1)
+                            tool_args["selector"] = sel
+                            tool_args["text"] = val
+
+                        if not self._browser_service:
+                            raise Exception("Browser Service not registered in Orchestrator")
+
+                        if hasattr(self._tool_manager, "execute_tool"):
+                            result = await self._tool_manager.execute_tool(
+                                tool_name, tool_args, self._browser_service
+                            )
+                        else:
+                            raise Exception("Tool Manager does not support execute_tool")
+
+                        await self._monitoring_logger.pipeline_stage(
+                            event_type=f"chat.tool.{tool_name}",
+                            title=f"Action {friendly_action} Completed",
+                            description=str(result),
+                            conversation_id=conversation_id,
+                            details={'args': tool_args, 'result': str(result)},
+                            status='complete',
+                            severity='success'
+                        )
+                    except Exception as exc:
+                        logger.error("browser_step_failed", step=step, error=str(exc))
+                        friendly_err = f"\nUnable to complete the website navigation/action: {exc}\n"
+                        response_parts.append(friendly_err)
+                        yield friendly_err
+
+                        await self._monitoring_logger.pipeline_stage(
+                            event_type="chat.tool.error",
+                            title=f"Action {friendly_action} Failed",
+                            description=str(exc),
+                            conversation_id=conversation_id,
+                            details={'step': step, 'error': str(exc)},
+                            status='error',
+                            severity='error'
+                        )
+                        return
+
+                success_msg = "\nDone. You can now continue browsing.\n"
+                response_parts.append(success_msg)
+                yield success_msg
+
+                metadata.latency_ms = int((time.perf_counter() - started_at) * 1000)
                 await self._monitoring_logger.response_ready(
                     conversation_id=conversation_id,
                     metadata=metadata,

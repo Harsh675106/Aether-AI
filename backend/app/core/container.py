@@ -19,6 +19,8 @@ from app.services.system_service import SystemService
 from app.tools.manager import PlaceholderToolManager
 from app.web.search import SearXNGClient, WebContentExtractor
 from app.workflow.engine import PlaceholderWorkflowEngine
+from app.browser.service import BrowserService
+
 
 
 @dataclass
@@ -37,10 +39,19 @@ class ApplicationContainer:
             web_search_client=self.web_search_client(),
             monitoring_service=self.monitoring_service(),
             image_search_service=self.image_search_service(),
+            planner=self.planner(),
+            tool_manager=self.tool_manager(),
+            browser_service=self.browser_service(),
         )
 
+
     def planner(self) -> PlaceholderPlanner:
-        return PlaceholderPlanner()
+        from app.llm.ollama_provider import OllamaProvider
+        return PlaceholderPlanner(
+            settings=self.settings,
+            llm_provider=OllamaProvider(self.settings),
+        )
+
 
     def memory_manager(self) -> ChromaMemoryManager:
         return ChromaMemoryManager(settings=self.settings)
@@ -98,3 +109,12 @@ class ApplicationContainer:
 
     def monitoring_service(self) -> MonitoringService:
         return self._monitoring_service
+
+    def browser_service(self) -> BrowserService:
+        if not hasattr(self, "_browser_service"):
+            self._browser_service = BrowserService(
+                settings=self.settings,
+                monitoring_service=self.monitoring_service(),
+            )
+        return self._browser_service
+

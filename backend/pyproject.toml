@@ -34,6 +34,7 @@ dependencies = [
   "aiosqlite>=0.20.0",
   "structlog>=24.4.0",
   "uvicorn[standard]>=0.30.6",
+  "playwright>=1.46.0",
 ]
 
 [project.optional-dependencies]

@@ -27,6 +27,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     
     logger.info("application_started", environment=settings.environment)
     yield
+    if hasattr(container, "_browser_service"):
+        await container.browser_service().close()
     logger.info("application_shutdown")
 
 

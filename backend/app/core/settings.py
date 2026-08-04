@@ -54,6 +54,26 @@ class Settings(BaseSettings):
     max_tokens: int = Field(default=2048, alias="AETHER_MAX_TOKENS")
     llm_timeout: int = Field(default=120, alias="AETHER_LLM_TIMEOUT")
 
+    browser_headless: bool = Field(default=True, alias="AETHER_BROWSER_HEADLESS")
+    browser_timeout: int = Field(default=30000, alias="AETHER_BROWSER_TIMEOUT")
+    browser_download_dir: str = Field(
+        default=str(BACKEND_DIR / "data" / "downloads"), alias="AETHER_BROWSER_DOWNLOAD_DIR"
+    )
+    browser_screenshot_dir: str = Field(
+        default=str(BACKEND_DIR / "data" / "screenshots"), alias="AETHER_BROWSER_SCREENSHOT_DIR"
+    )
+    browser_user_data_dir: str = Field(
+        default=str(BACKEND_DIR / "data" / "browser" / "profiles"), alias="AETHER_BROWSER_USER_DATA_DIR"
+    )
+    browser_user_agent: str = Field(
+        default="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        alias="AETHER_BROWSER_USER_AGENT",
+    )
+    browser_viewport_width: int = Field(default=1280, alias="AETHER_BROWSER_VIEWPORT_WIDTH")
+    browser_viewport_height: int = Field(default=800, alias="AETHER_BROWSER_VIEWPORT_HEIGHT")
+    browser_retry_count: int = Field(default=3, alias="AETHER_BROWSER_RETRY_COUNT")
+
+
     @property
     def cors_origins(self) -> list[str]:
         return [origin.strip() for origin in self.cors_origins_raw.split(",") if origin.strip()]

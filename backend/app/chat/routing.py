@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from dataclasses import dataclass
 
@@ -58,6 +58,20 @@ class RoutingEngine:
                 confidence=max(intent.confidence, 95),
                 reason="Image search should be handled by the dedicated image service.",
             )
+
+        if intent.category == IntentCategory.BROWSER_ACTION:
+            return RoutingDecision(
+                intent=intent,
+                use_memory=False,
+                use_search=False,
+                use_image_search=False,
+                use_ollama=True,
+                use_tools=True,
+                use_planner=True,
+                confidence=max(intent.confidence, 97),
+                reason="Browser actions require planning and execution of browser tools.",
+            )
+
 
         if intent.requires_search:
             return RoutingDecision(
