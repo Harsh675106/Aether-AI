@@ -1,5 +1,7 @@
+import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import Any
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -21,15 +23,27 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     configure_logging(settings)
     container = ApplicationContainer(settings=settings)
     app.state.container = container
-    
+
     # Initialize database tables
     await init_db(container.database_engine())
-    
+
+    voice_service = container.voice_service()
+    app.state.voice_model_task = asyncio.create_task(_load_voice_model(voice_service))
+
     logger.info("application_started", environment=settings.environment)
     yield
+    await app.state.voice_model_task
+    voice_service.shutdown()
     if hasattr(container, "_browser_service"):
         await container.browser_service().close()
     logger.info("application_shutdown")
+
+
+async def _load_voice_model(voice_service: Any) -> None:
+    try:
+        await voice_service.load_model()
+    except Exception:
+        logger.exception("voice_model_startup_failed")
 
 
 def create_app() -> FastAPI:
@@ -56,4 +70,3 @@ def create_app() -> FastAPI:
 
 
 app = create_app()
-

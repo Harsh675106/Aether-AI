@@ -5,6 +5,8 @@ export type VoicePhase =
   | "starting"
   | "listening"
   | "processing_speech"
+  | "understanding"
+  | "executing"
   | "sending_to_chatbot"
   | "receiving_ai_response"
   | "converting_to_speech"
@@ -34,9 +36,11 @@ export type VoiceChatTransport = {
     content: string,
     options?: {
       conversationId?: string;
+      source?: "voice";
       onDelta?: (delta: string, accumulated: string) => void;
     }
   ) => Promise<string | null>;
+  addLocalResponse?: (userMessage: string, assistantMessage: string) => void;
 };
 
 export type VoiceEngineOptions = {

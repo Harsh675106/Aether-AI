@@ -36,17 +36,19 @@ export function normalizeUrl(input: string): string {
 }
 
 export function parseBrowserVoiceCommand(message: string): BrowserCommand | null {
-  const msg = message.trim().toLowerCase();
+  const msg = message.trim().toLowerCase().replace(/[.!?]+$/, "");
 
   // ── Open / Navigate ──────────────────────────────────────────────────────────
 
-  // "open browser" (generic, no site)
-  if (/^open browser$/.test(msg)) {
+  // Open Aether's browser for browser-app commands; never launch a desktop browser.
+  if (/^open (?:the )?(?:browser|chrome|google chrome|edge|microsoft edge)$/.test(msg)) {
     return { action: 'open', url: 'https://www.google.com' };
   }
 
-  // "search <query> on the web"
-  const searchMatch = msg.match(/^search\s+(.+?)\s+on\s+the\s+web$/);
+  // Web searches also run in Aether's floating browser.
+  const searchMatch = msg.match(
+    /^(?:search(?:\s+for)?|google)\s+(.+?)(?:\s+on\s+(?:the\s+)?(?:web|google))?$/
+  );
   if (searchMatch) {
     const query = searchMatch[1];
     return {

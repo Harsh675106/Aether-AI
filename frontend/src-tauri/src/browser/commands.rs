@@ -34,7 +34,15 @@ pub async fn browser_open(
         (st.x, st.y, st.width, st.height)
     };
 
-    ensure_webview(&app, &target_url, px, py, pw, ph)?;
+    // Opening from the React shell normally has no bounds yet. Do not attach
+    // the native child WebView with fallback geometry; BrowserWindow measures
+    // its actual content box and browser_update_bounds creates it from that
+    // authoritative rectangle in the same layout lifecycle.
+    if app.get_webview("browser-view").is_some()
+        || (width.is_some() && height.is_some() && pw > 0.0 && ph > 0.0)
+    {
+        ensure_webview(&app, &target_url, px, py, pw, ph)?;
+    }
     Ok(())
 }
 
@@ -57,6 +65,11 @@ pub async fn browser_update_bounds(
     if let Some(webview) = app.get_webview("browser-view") {
         let _ = webview.set_position(LogicalPosition::new(x, y));
         let _ = webview.set_size(LogicalSize::new(width, height));
+    } else {
+        let browser_state = state.get_state();
+        if browser_state.is_open && browser_state.visible && width > 0.0 && height > 0.0 {
+            ensure_webview(&app, &browser_state.url, x, y, width, height)?;
+        }
     }
     Ok(())
 }

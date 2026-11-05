@@ -27,6 +27,23 @@ describe("Browser Commands Voice & Text Parser", () => {
     expect(cmd2?.url).toBe("https://github.com");
   });
 
+  it("routes browser apps, URL commands, and web searches to the floating browser", () => {
+    expect(parseBrowserVoiceCommand("open youtube.com")?.action).toBe("open");
+    expect(parseBrowserVoiceCommand("open youtube.com.")?.action).toBe("open");
+    expect(parseBrowserVoiceCommand("go to youtube.com")?.action).toBe("navigate");
+    expect(parseBrowserVoiceCommand("open chrome")?.action).toBe("open");
+    expect(parseBrowserVoiceCommand("open edge")?.action).toBe("open");
+    expect(parseBrowserVoiceCommand("open browser")?.action).toBe("open");
+    expect(parseBrowserVoiceCommand("open youtube.com")?.url).toBe("https://youtube.com");
+    expect(parseBrowserVoiceCommand("open youtube.com.")?.url).toBe("https://youtube.com");
+    expect(parseBrowserVoiceCommand("search for python tutorials")?.url).toBe(
+      "https://www.google.com/search?q=python%20tutorials"
+    );
+    expect(parseBrowserVoiceCommand("google python tutorials")?.url).toBe(
+      "https://www.google.com/search?q=python%20tutorials"
+    );
+  });
+
   it("parses window management commands", () => {
     expect(parseBrowserVoiceCommand("minimize browser")?.action).toBe("hide");
     expect(parseBrowserVoiceCommand("hide browser")?.action).toBe("hide");

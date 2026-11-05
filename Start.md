@@ -78,6 +78,8 @@ uvicorn app.main:create_app --factory --host 127.0.0.1 --port 8001
 > ✓ You'll see: `Uvicorn running on http://127.0.0.1:8001`
 > 
 > 💡 This ensures Playwright opens a visible Chromium window for browser commands.
+>
+> 🎙️ On first startup, Faster-Whisper downloads the configured local `base` model. Wait until `/api/v1/voice/health` reports `"status": "ready"` before recording. Voice transcription then runs locally using CPU INT8; it does not use browser speech recognition or Google's speech service.
 
 ---
 

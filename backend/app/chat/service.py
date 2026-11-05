@@ -10,12 +10,12 @@ from fastapi import HTTPException
 
 from app.chat.orchestrator import ConversationOrchestrator
 from app.chat.schemas import ChatCompletionChunk, ChatCompletionRequest
+from app.core.interfaces import MemoryManager
 from app.core.logging import get_logger
 from app.core.settings import Settings
 from app.images.service import ImageSearchService, SearXNGImageSearchProvider
 from app.llm.ollama_provider import OllamaProvider
 from app.memory.history_store import ConversationHistoryStore
-from app.memory.manager import PlaceholderMemoryManager
 from app.monitoring.service import MonitoringService
 from app.web.search import SearXNGClient, WebSearchPipeline
 
@@ -47,7 +47,7 @@ class ChatService:
         settings: Settings,
         *,
         history_store: ConversationHistoryStore | None = None,
-        memory_manager: PlaceholderMemoryManager | None = None,
+        memory_manager: MemoryManager | None = None,
         web_search_client: SearXNGClient | None = None,
         monitoring_service: MonitoringService | None = None,
         image_search_service: ImageSearchService | None = None,

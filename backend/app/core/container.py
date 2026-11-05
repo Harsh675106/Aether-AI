@@ -31,6 +31,10 @@ class ApplicationContainer:
     def system_service(self) -> SystemService:
         return SystemService(settings=self.settings)
 
+    def voice_service(self) -> Any:
+        from app.voice.service import VoiceService
+        return VoiceService.get_instance(self.settings)
+
     def chat_service(self) -> ChatService:
         return ChatService.from_settings(
             self.settings,

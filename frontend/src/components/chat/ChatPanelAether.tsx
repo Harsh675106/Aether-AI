@@ -1,5 +1,5 @@
 import { motion, AnimatePresence } from "framer-motion";
-import { Mic, MicOff, Square, Sparkles, Volume2, Radio, Loader2, ArrowDown } from "lucide-react";
+import { Mic, MicOff, Square, Sparkles, Volume2, Radio, Loader2, ArrowDown, AlertCircle } from "lucide-react";
 import { useState, useEffect } from "react";
 
 import { AetherLogo } from "@/components/aether/AetherLogo";
@@ -12,8 +12,8 @@ import { AvatarController } from "@/components/avatar";
 
 export function ChatPanelAether() {
   const [draft, setDraft] = useState("");
-  const { messages, isStreaming, error, sendMessage, clearMessages } = useChat();
-  const voice = useVoiceAssistant(sendMessage);
+  const { messages, isStreaming, error, sendMessage, addLocalResponse, clearMessages } = useChat();
+  const voice = useVoiceAssistant(sendMessage, addLocalResponse);
 
   const voiceState = voice.state;
   const isVoiceRunning = voice.isRunning;
@@ -21,7 +21,13 @@ export function ChatPanelAether() {
 
   const isListening = voiceState.listening || phase === "listening";
   const isSpeaking = voiceState.speaking || phase === "speaking";
-  const isProcessing = phase === "processing_speech" || phase === "sending_to_chatbot" || phase === "receiving_ai_response" || phase === "converting_to_speech";
+  const isProcessing =
+    phase === "processing_speech" ||
+    phase === "understanding" ||
+    phase === "executing" ||
+    phase === "sending_to_chatbot" ||
+    phase === "receiving_ai_response" ||
+    phase === "converting_to_speech";
 
   // Sync state changes with AvatarController
   useEffect(() => {
@@ -69,6 +75,10 @@ export function ChatPanelAether() {
         return "Listening for speech...";
       case "processing_speech":
         return "Processing speech input...";
+      case "understanding":
+        return "Understanding your request...";
+      case "executing":
+        return "Executing supported command...";
       case "sending_to_chatbot":
         return "Sending to Aether AI...";
       case "receiving_ai_response":
@@ -184,6 +194,15 @@ export function ChatPanelAether() {
                   })}
                 </div>
                 {error ? <p className="mt-3 text-sm text-rose-300">{error}</p> : null}
+                {voiceState.error ? (
+                  <div className="mt-3 flex items-start gap-2.5 rounded-[1.25rem] border border-rose-500/40 bg-rose-950/60 p-3 text-xs text-rose-200 backdrop-blur-md">
+                    <AlertCircle className="h-4 w-4 shrink-0 text-rose-400 mt-0.5" />
+                    <div className="flex-1">
+                      <p className="font-semibold uppercase tracking-wider text-rose-300">Voice Assistant Error</p>
+                      <p className="mt-1 leading-relaxed text-rose-100/90">{voiceState.error}</p>
+                    </div>
+                  </div>
+                ) : null}
               </div>
 
               <AnimatePresence>
@@ -219,16 +238,22 @@ export function ChatPanelAether() {
 
             {/* Voice Status & Live Indicator Banner */}
             <AnimatePresence>
-              {isVoiceRunning && (
+              {(isVoiceRunning || voiceState.phase === "error" || Boolean(voiceState.error)) && (
                 <motion.div
                   initial={{ opacity: 0, height: 0, marginBottom: 0 }}
                   animate={{ opacity: 1, height: "auto", marginBottom: 12 }}
                   exit={{ opacity: 0, height: 0, marginBottom: 0 }}
-                  className="relative overflow-hidden rounded-[1.25rem] border border-sky-400/30 bg-gradient-to-r from-sky-950/60 via-slate-900/60 to-orange-700 px-3.5 py-2 text-xs backdrop-blur-md"
+                  className={`relative overflow-hidden rounded-[1.25rem] border px-3.5 py-2 text-xs backdrop-blur-md ${
+                    voiceState.phase === "error" || Boolean(voiceState.error)
+                      ? "border-rose-400/50 bg-rose-950/80 text-rose-100 shadow-[0_0_20px_rgba(244,63,94,0.2)]"
+                      : "border-sky-400/30 bg-gradient-to-r from-sky-950/60 via-slate-900/60 to-orange-700"
+                  }`}
                 >
                   <div className="flex items-center justify-between gap-3">
                     <div className="flex items-center gap-2.5 overflow-hidden">
-                      {isListening ? (
+                      {voiceState.phase === "error" || Boolean(voiceState.error) ? (
+                        <AlertCircle className="h-4 w-4 text-rose-400 shrink-0" />
+                      ) : isListening ? (
                         <div className="relative flex h-3 w-3 items-center justify-center">
                           <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-75"></span>
                           <span className="relative inline-flex h-2 w-2 rounded-full bg-red-500"></span>
@@ -242,20 +267,24 @@ export function ChatPanelAether() {
                       )}
 
                       <div className="flex flex-col min-w-0">
-                        <span className="font-semibold uppercase tracking-[0.2em] text-sky-200">
+                        <span className={`font-semibold uppercase tracking-[0.2em] ${voiceState.phase === "error" || Boolean(voiceState.error) ? "text-rose-300" : "text-sky-200"}`}>
                           {getVoicePhaseLabel()}
                         </span>
-                        {voiceState.transcript && (
-                          <span className="truncate text-[11px] text-slate-300 italic">
-                            {`"${voiceState.transcript}"`}
+                        {voiceState.error ? (
+                          <span className="text-[11px] text-rose-200/90 leading-tight mt-0.5 line-clamp-2">
+                            {voiceState.error}
                           </span>
-                        )}
+                        ) : voiceState.transcript ? (
+                          <span className="truncate text-[11px] text-slate-300 italic">
+                            {`Aether heard: "${voiceState.transcript}"`}
+                          </span>
+                        ) : null}
                       </div>
                     </div>
 
                     {/* Animated Audio Equalizer Waves */}
                     <div className="flex items-center gap-2 shrink-0">
-                      {(isListening || isSpeaking) && (
+                      {(isListening || isSpeaking) && !voiceState.error && (
                         <div className="flex items-end gap-0.5 h-4">
                           <div className="w-1 bg-cyan-400 rounded-full animate-[bounce_0.8s_ease-in-out_infinite]" />
                           <div className="w-1 bg-sky-300 rounded-full animate-[bounce_1.1s_ease-in-out_infinite_0.2s]" />
@@ -267,8 +296,8 @@ export function ChatPanelAether() {
                       <button
                         type="button"
                         onClick={() => void voice.stop()}
-                        title="Cancel Voice Interaction"
-                        className="flex items-center justify-center h-6 w-6 rounded-full border border-black bg-black text-white-300 hover:bg-gray-800 transition"
+                        title={isListening ? "Cancel Voice Recording" : "Stop Voice Engine"}
+                        className="flex items-center justify-center h-6 w-6 rounded-full border border-black bg-black text-white hover:bg-gray-800 transition"
                       >
                         <Square className="h-3 w-3 fill-current" />
                       </button>
@@ -308,7 +337,9 @@ export function ChatPanelAether() {
                     !voice.supported
                       ? "Voice engine not supported in browser"
                       : isVoiceRunning
-                      ? "Stop Voice Engine"
+                      ? isListening
+                        ? "Stop recording and transcribe"
+                        : "Stop Voice Engine"
                       : 'Start Voice Engine (Say "Aether")'
                   }
                   className={`relative inline-flex h-11 w-11 items-center justify-center rounded-[1.5rem] border text-sm transition-all duration-300 ${
@@ -354,4 +385,3 @@ export function ChatPanelAether() {
     </>
   );
 }
-

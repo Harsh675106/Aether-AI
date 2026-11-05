@@ -18,7 +18,10 @@ const createInitialState = (): VoiceState => ({
   updatedAt: Date.now(),
 });
 
-export function useVoiceAssistant(sendMessage: VoiceChatTransport["sendMessage"]) {
+export function useVoiceAssistant(
+  sendMessage: VoiceChatTransport["sendMessage"],
+  addLocalResponse?: VoiceChatTransport["addLocalResponse"]
+) {
   const engineRef = useRef<AetherVoiceEngine | null>(null);
   const [state, setState] = useState<VoiceState>(() => createInitialState());
 
@@ -45,11 +48,12 @@ export function useVoiceAssistant(sendMessage: VoiceChatTransport["sendMessage"]
     // Wrap in a stable function so the transport always calls the latest version.
     engine.updateChatTransport({
       sendMessage: (content, options) => sendMessageRef.current(content, options),
+      addLocalResponse,
     });
 
     return engine.subscribe(setState);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [addLocalResponse]);
 
   useEffect(() => {
     const engine = engineRef.current;
@@ -66,6 +70,7 @@ export function useVoiceAssistant(sendMessage: VoiceChatTransport["sendMessage"]
       toggle: async () => engineRef.current?.toggle(),
       supported: state.supported,
       isRunning: state.phase !== "idle" && state.phase !== "error" && state.phase !== "completed",
+      hasError: state.phase === "error" || Boolean(state.error),
     }),
     [state]
   );

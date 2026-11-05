@@ -1,142 +1,149 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
 import { AetherVoiceEngine } from "./engine";
+
+class MockMediaRecorder {
+  static isTypeSupported = vi.fn(() => true);
+  static latestInstance: MockMediaRecorder | null = null;
+  state: RecordingState = "inactive";
+  mimeType = "audio/webm;codecs=opus";
+  ondataavailable: ((event: BlobEvent) => void) | null = null;
+  onerror: ((event: Event) => void) | null = null;
+  onstop: (() => void) | null = null;
+
+  constructor(_stream: MediaStream, _options?: MediaRecorderOptions) {
+    MockMediaRecorder.latestInstance = this;
+  }
+
+  start() {
+    this.state = "recording";
+  }
+
+  emitAudio() {
+    this.ondataavailable?.({
+      data: new Blob([new Uint8Array(200)], { type: "audio/webm" }),
+    } as BlobEvent);
+  }
+
+  stop() {
+    this.state = "inactive";
+    this.emitAudio();
+    this.onstop?.();
+  }
+}
+
+const response = (body: unknown, status = 200) =>
+  ({
+    ok: status >= 200 && status < 300,
+    status,
+    json: async () => body,
+  }) as Response;
 
 describe("AetherVoiceEngine", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
-
-    Object.defineProperty(window, "SpeechRecognition", {
-      writable: true,
-      value: vi.fn().mockImplementation(function (this: any) {
-        return {
-          start: vi.fn(),
-          stop: vi.fn(),
-          abort: vi.fn(),
-        };
-      }),
-    });
-
-    Object.defineProperty(window, "speechSynthesis", {
-      writable: true,
+    vi.stubGlobal("MediaRecorder", MockMediaRecorder);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith("/voice/health")) {
+          return response({ status: "ready" });
+        }
+        if (url.endsWith("/voice/transcribe")) {
+          return response({ text: "explain machine learning", language: "en" });
+        }
+        if (url.includes("/voice/execute?")) {
+          return response({ handled: false, message: "", action_type: null });
+        }
+        return response({});
+      })
+    );
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
       value: {
-        speak: vi.fn(),
+        getUserMedia: vi.fn(async () => ({
+          getTracks: () => [{ stop: vi.fn() }],
+        })),
+      },
+    });
+    Object.defineProperty(window, "speechSynthesis", {
+      configurable: true,
+      value: {
+        speak: vi.fn((utterance: SpeechSynthesisUtterance) => {
+          queueMicrotask(() => utterance.onend?.(new Event("end") as SpeechSynthesisEvent));
+        }),
         cancel: vi.fn(),
         getVoices: vi.fn().mockReturnValue([]),
       },
     });
-
     Object.defineProperty(window, "SpeechSynthesisUtterance", {
-      writable: true,
-      value: vi.fn(),
+      configurable: true,
+      value: vi.fn().mockImplementation((text: string) => ({ text })),
     });
   });
 
-  it("recovers from transient speech recognition errors by restarting listening", async () => {
-    vi.useFakeTimers();
-
-    const createdRecognitions: Array<any> = [];
-    Object.defineProperty(window, "SpeechRecognition", {
-      writable: true,
-      value: vi.fn().mockImplementation(function (this: any) {
-        const recognition = {
-          start: vi.fn(),
-          stop: vi.fn(),
-          abort: vi.fn(),
-        };
-        createdRecognitions.push(recognition);
-        return recognition;
-      }),
-    });
-
+  it("records locally, transcribes through FastAPI, and sends the transcript to chat", async () => {
+    const sendMessage = vi.fn(async () => "Machine learning is a type of AI.");
     const engine = new AetherVoiceEngine({
-      chatTransport: {
-        sendMessage: vi.fn(),
-      },
+      chatTransport: { sendMessage },
     });
 
     await engine.start();
-    createdRecognitions[0].onerror?.({ error: "network" });
+    await vi.waitFor(() => expect(engine.getState().listening).toBe(true));
+    MockMediaRecorder.latestInstance?.emitAudio();
+    await vi.waitFor(
+      () => expect(engine.getState().transcript).toBe("explain machine learning"),
+      { timeout: 4000 }
+    );
+    await engine.toggle();
 
-    vi.advanceTimersByTime(400);
-    await Promise.resolve();
-
-    expect(engine.getState().phase).toBe("listening");
-    expect(createdRecognitions).toHaveLength(2);
-
-    vi.useRealTimers();
+    await vi.waitFor(() =>
+      expect(sendMessage).toHaveBeenCalledWith(
+        "explain machine learning",
+        expect.objectContaining({ source: "voice" })
+      )
+    );
+    await engine.stop();
   });
 
-  it("initializes with default settings and state", () => {
+  it("reports microphone permission denial and releases the engine", async () => {
+    vi.spyOn(navigator.mediaDevices, "getUserMedia").mockRejectedValue(
+      new DOMException("Permission denied", "NotAllowedError")
+    );
     const engine = new AetherVoiceEngine({
-      chatTransport: {
-        sendMessage: vi.fn(),
-      },
-    });
-
-    const state = engine.getState();
-    expect(state.phase).toBe("idle");
-    expect(state.wakeWord).toBe("");
-    expect(state.supported).toBe(true);
-    expect(state.listening).toBe(false);
-  });
-
-  it("starts and updates phase to starting", async () => {
-    const engine = new AetherVoiceEngine({
-      chatTransport: {
-        sendMessage: vi.fn(),
-      },
+      chatTransport: { sendMessage: vi.fn() },
     });
 
     await engine.start();
-    const state = engine.getState();
-    expect(state.sessionId).not.toBeNull();
+
+    await vi.waitFor(() => expect(engine.getState().phase).toBe("error"));
+    expect(engine.getState().error).toContain("Microphone access is blocked");
   });
 
-  it("does not stop on common interrupting phrases", async () => {
-    const sendMessage = vi.fn(() => new Promise<string | null>(() => {}));
+  it("cancels a recording without submitting audio", async () => {
     const engine = new AetherVoiceEngine({
-      chatTransport: {
-        sendMessage,
-      },
+      chatTransport: { sendMessage: vi.fn() },
     });
 
     await engine.start();
-    await (engine as any).handleSpokenCommand("stop listening");
-
-    expect(sendMessage).not.toHaveBeenCalled();
-    expect(engine.getState().phase).toBe("completed");
-  });
-
-  it("stops cleanly and resets listening state", async () => {
-    const engine = new AetherVoiceEngine({
-      chatTransport: {
-        sendMessage: vi.fn(),
-      },
-    });
-
-    await engine.start();
+    await vi.waitFor(() => expect(engine.getState().listening).toBe(true));
     await engine.stop();
 
-    const state = engine.getState();
-    expect(state.phase).toBe("completed");
-    expect(state.listening).toBe(false);
-    expect(state.speaking).toBe(false);
+    expect(engine.getState().phase).toBe("completed");
+    expect(fetch).not.toHaveBeenCalledWith(
+      expect.stringContaining("/voice/transcribe"),
+      expect.anything()
+    );
   });
 
-  it("notifies subscribers on state change", async () => {
+  it("initializes with local recording support and an idle state", () => {
     const engine = new AetherVoiceEngine({
-      chatTransport: {
-        sendMessage: vi.fn(),
-      },
+      chatTransport: { sendMessage: vi.fn() },
     });
 
-    const listener = vi.fn();
-    engine.subscribe(listener);
-
-    expect(listener).toHaveBeenCalled();
-    const initialCallCount = listener.mock.calls.length;
-
-    await engine.start();
-    expect(listener.mock.calls.length).toBeGreaterThan(initialCallCount);
+    expect(engine.getState().phase).toBe("idle");
+    expect(engine.getState().supported).toBe(true);
+    expect(engine.getState().listening).toBe(false);
   });
 });

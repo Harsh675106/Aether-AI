@@ -1,4 +1,8 @@
-import { browserSpeechRecognitionProvider, browserSpeechSynthesisProvider } from "./providers";
+import {
+  executeLocalVoiceCommand,
+  localWhisperSpeechRecognitionProvider,
+  browserSpeechSynthesisProvider,
+} from "./providers";
 import { publishVoiceMonitoringEvent } from "./monitoring";
 import { formatMarkdownForSpeech } from "./formatter";
 import type { VoiceEngineOptions, VoiceState } from "./types";
@@ -21,7 +25,7 @@ function isStopPhrase(transcript: string) {
 }
 
 export class AetherVoiceEngine {
-  private readonly speechRecognition = browserSpeechRecognitionProvider;
+  private readonly speechRecognition = localWhisperSpeechRecognitionProvider;
   private readonly speechSynthesis = browserSpeechSynthesisProvider;
   private readonly listeners = new Set<(state: VoiceState) => void>();
   private readonly settings: Required<Omit<VoiceEngineOptions, "chatTransport">>;
@@ -38,6 +42,7 @@ export class AetherVoiceEngine {
   private silenceTimer: number | null = null;
   private restartTimer: number | null = null;
   private recognitionGeneration = 0;
+  private consecutiveNoSpeechErrors = 0;
 
   // Centralized State Machine Flags
   private isMicActive = false;
@@ -183,22 +188,13 @@ export class AetherVoiceEngine {
       this.updateState({
         phase: "error",
         supported: false,
-        error: "Speech recognition is not supported in this browser. Use Chrome or Microsoft Edge and allow microphone access.",
+        error: "Local voice recording is unavailable. Check microphone access and WebView2 support.",
         listening: false,
         active: false,
         speaking: false,
       });
       this.publishEvent("voice_error", "Voice Error", "Speech recognition is not supported in this environment.", "error", "error", {
         reason: "unsupported",
-      });
-      return;
-    }
-
-    try {
-      await this.speechRecognition.requestMicrophoneAccess?.();
-    } catch (error) {
-      await this.handleError(error instanceof Error ? error.message : "Unable to access the microphone.", {
-        reason: "microphone_permission",
       });
       return;
     }
@@ -259,11 +255,26 @@ export class AetherVoiceEngine {
 
   async toggle(): Promise<void> {
     if (this.running) {
-      await this.stop();
+      if (this.state.phase === "listening") {
+        this.finishRecording();
+      } else {
+        await this.stop();
+      }
       return;
     }
 
     await this.start();
+  }
+
+  finishRecording(): void {
+    if (!this.running || !this.recognitionSession || this.state.phase !== "listening") {
+      return;
+    }
+
+    this.clearSilenceTimer();
+    this.updateState({ phase: "processing_speech", listening: false, active: true });
+    this.setListeningModeActive(false);
+    this.recognitionSession.stop();
   }
 
   private async beginListening(): Promise<void> {
@@ -275,21 +286,15 @@ export class AetherVoiceEngine {
     this.stopRecognition();
     this.paused = false;
 
-    // Update UI immediately while the browser speech recognition session initializes.
+    // Keep the UI in "starting" until the recorder confirms that capture began.
     this.updateState({
-      phase: "listening",
-      listening: true,
+      phase: "starting",
+      listening: false,
       active: false,
     });
-    this.setMicrophoneActive(true);
-    this.setListeningModeActive(true);
 
     const sessionGeneration = ++this.recognitionGeneration;
     const session = this.speechRecognition.createSession({
-      language: this.settings.language,
-      continuous: true,
-      interimResults: true,
-      maxAlternatives: 1,
       onStart: () => {
         if (this.recognitionGeneration !== sessionGeneration || !this.running || this.stopRequested || this.paused) {
           return;
@@ -299,11 +304,18 @@ export class AetherVoiceEngine {
           phase: "listening",
           listening: true,
           active: false,
+          error: null,
         });
 
-        // Trigger transition events only on state changes (suppresses repeated logs on internal restarts)
         this.setMicrophoneActive(true);
         this.setListeningModeActive(true);
+      },
+      onAudioStart: () => {
+        if (this.recognitionGeneration !== sessionGeneration || !this.running || this.stopRequested) return;
+        this.publishEvent("voice_audio_start", "Microphone Audio Capturing", "Microphone audio track is actively delivering audio stream.", "info", "running", {
+          session_id: this.sessionId,
+          conversation_id: this.conversationId,
+        });
       },
       onEnd: () => {
         if (this.recognitionGeneration !== sessionGeneration || !this.running || this.stopRequested || this.paused) {
@@ -313,26 +325,42 @@ export class AetherVoiceEngine {
 
         this.recognitionSession = null;
 
-        // If the user spoke a command and the speech session ended before the debounce timer,
-        // execute the command immediately!
-        if (this.state.transcript && this.state.transcript.trim()) {
-          const pendingCommand = this.state.transcript.trim();
-          this.clearSilenceTimer();
-          void this.handleSpokenCommand(pendingCommand);
-          return;
-        }
-
         if (this.settings.autoRestart) {
           this.scheduleRestartListening();
         }
       },
-      onResult: (transcript, isFinal) => {
+      onUnderstanding: () => {
+        if (this.recognitionGeneration !== sessionGeneration || !this.running || this.stopRequested) {
+          return;
+        }
+        this.updateState({ phase: "understanding", listening: false, active: true });
+      },
+      onInterimResult: (transcript, metadata) => {
+        if (
+          this.recognitionGeneration !== sessionGeneration ||
+          !this.running ||
+          this.stopRequested ||
+          this.paused ||
+          this.state.phase !== "listening"
+        ) {
+          return;
+        }
+
+        const normalizedTranscript = normalizeTranscript(transcript);
+        if (!normalizedTranscript) {
+          return;
+        }
+        this.updateDetectedLanguage(metadata?.language || this.settings.language);
+        this.updateState({ transcript: normalizedTranscript });
+      },
+      onResult: (transcript, isFinal, metadata) => {
         if (this.recognitionGeneration !== sessionGeneration || !this.running || this.stopRequested || this.paused) {
           return;
         }
-        void this.handleRecognitionResult(transcript, isFinal);
+        this.consecutiveNoSpeechErrors = 0;
+        void this.handleRecognitionResult(transcript, isFinal, metadata?.language);
       },
-      onError: (message) => {
+      onError: (message, rawErrorType) => {
         if (this.recognitionGeneration !== sessionGeneration || !this.running || this.stopRequested || this.paused) {
           return;
         }
@@ -342,17 +370,31 @@ export class AetherVoiceEngine {
           return;
         }
 
-        if (err.includes("network") || err.includes("audio-capture") || err.includes("no-speech")) {
+        const isNoSpeech = err.includes("no speech") || err.includes("no-speech") || rawErrorType === "no-speech";
+
+        if (isNoSpeech) {
+          this.consecutiveNoSpeechErrors++;
+          this.publishEvent("voice_no_speech", "No Speech Detected", "Microphone is listening, but no words were heard. Check mic volume or speak louder.", "warning", "running", {
+            consecutive: this.consecutiveNoSpeechErrors,
+          });
+
+          if (this.consecutiveNoSpeechErrors >= 3) {
+            // After 3 quiet cycles, inform the user in the transcript placeholder
+            this.updateState({
+              transcript: "No speech heard yet — try speaking closer to your mic...",
+            });
+          }
+
           this.scheduleRestartListening();
           return;
         }
 
-        void this.handleError(message, { reason: "speech_recognition" });
+        void this.handleError(message, { reason: "local_voice_engine", raw_error: rawErrorType });
       },
     });
 
     if (!session) {
-      await this.handleError("Unable to start speech recognition.", { reason: "session_unavailable" });
+      await this.handleError("Unable to start local audio recording.", { reason: "session_unavailable" });
       return;
     }
 
@@ -373,9 +415,9 @@ export class AetherVoiceEngine {
     }
 
     try {
-      this.recognitionSession.stop();
-    } catch {
       this.recognitionSession.abort();
+    } catch {
+      console.warn("[Voice] Failed to release the active recording session.");
     }
 
     this.recognitionSession = null;
@@ -410,25 +452,33 @@ export class AetherVoiceEngine {
     }, 350);
   }
 
-  private async handleRecognitionResult(transcript: string, isFinal: boolean): Promise<void> {
+  private async handleRecognitionResult(
+    transcript: string,
+    isFinal: boolean,
+    detectedLanguage?: string
+  ): Promise<void> {
     if (!this.running || this.stopRequested) {
+      console.warn("[Voice:Engine] handleRecognitionResult called but engine is stopped — discarding.");
       return;
     }
 
     const normalizedTranscript = normalizeTranscript(transcript);
     if (!normalizedTranscript) {
+      console.warn("[Voice:Engine] handleRecognitionResult — transcript normalized to empty string, skipping.");
       return;
     }
 
-    this.updateDetectedLanguage(this.settings.language);
+    console.log(`[Voice:Engine] 🎤 Speech received — isFinal=${isFinal} transcript="${normalizedTranscript}"`);
+
+    this.updateDetectedLanguage(detectedLanguage || this.settings.language);
     this.updateState({ transcript: normalizedTranscript });
     this.clearSilenceTimer();
 
     this.updateState({
       transcript: normalizedTranscript,
-      phase: "listening",
+      phase: isFinal ? "understanding" : "listening",
       active: true,
-      listening: true,
+      listening: !isFinal,
     });
 
     this.publishEvent("voice_recording_started", "Recording Command Started", "Capturing speech input.", "info", "running", {
@@ -438,6 +488,7 @@ export class AetherVoiceEngine {
     });
 
     if (isFinal) {
+      console.log(`[Voice:Engine] ✅ Final transcript — sending to handleSpokenCommand: "${normalizedTranscript}"`);
       this.publishEvent("voice_speech_recognized", "Speech Recognized", `Recognized speech: "${normalizedTranscript}"`, "info", "running", {
         transcript: normalizedTranscript,
         session_id: this.sessionId,
@@ -447,11 +498,13 @@ export class AetherVoiceEngine {
       return;
     }
 
+    console.log(`[Voice:Engine] Interim transcript — waiting for silence debounce (${Math.min(this.settings.silenceTimeoutMs, 1000)}ms): "${normalizedTranscript}"`);
     // Debounce end-of-speech detection for continuous speech pauses
     this.silenceTimer = window.setTimeout(() => {
       this.silenceTimer = null;
       if (this.running && this.state.transcript) {
         const currentTranscript = this.state.transcript;
+        console.log(`[Voice:Engine] Silence timeout fired — sending to handleSpokenCommand: "${currentTranscript}"`);
         this.publishEvent("voice_speech_recognized", "Speech Recognized", `Recognized speech: "${currentTranscript}"`, "info", "running", {
           transcript: currentTranscript,
           session_id: this.sessionId,
@@ -481,13 +534,16 @@ export class AetherVoiceEngine {
     // End listening mode while processing command
     this.setListeningModeActive(false);
 
-    // Use configured language for every voice interaction query
-    const queryLanguage = { name: this.settings.language, code: this.settings.language } as any;
-    this.updateDetectedLanguage(queryLanguage.code, true);
+    const languageCode = this.activeLanguage.code;
+    const queryLanguage = {
+      name: languageCode,
+      code: languageCode === "hi" ? "hi-IN" : languageCode === "en" ? "en-US" : languageCode,
+    };
+    this.updateDetectedLanguage(languageCode, true);
 
     this.streamedResponse = "";
     this.updateState({
-      phase: "processing_speech",
+      phase: "understanding",
       transcript: cleanedTranscript,
       response: "",
       listening: false,
@@ -507,32 +563,41 @@ export class AetherVoiceEngine {
     this.pauseRecognition();
 
     try {
-      this.updateState({ phase: "sending_to_chatbot" });
-      this.publishEvent("voice_sending_to_chatbot", "Sending to Chatbot", "User speech is being routed through the AI chat pipeline.", "info", "running", {
-        transcript: cleanedTranscript,
-        detected_language: queryLanguage.name,
-        detected_language_code: queryLanguage.code,
-        session_id: this.sessionId,
-        conversation_id: this.conversationId,
-      });
+      const command = await executeLocalVoiceCommand(cleanedTranscript);
+      let response: string | null;
+      if (command.handled) {
+        this.updateState({ phase: "executing" });
+        response = command.message;
+        this.chatTransport.addLocalResponse?.(cleanedTranscript, command.message);
+      } else {
+        this.updateState({ phase: "sending_to_chatbot" });
+        this.publishEvent("voice_sending_to_chatbot", "Sending to Chatbot", "User speech is being routed through the AI chat pipeline.", "info", "running", {
+          transcript: cleanedTranscript,
+          detected_language: queryLanguage.name,
+          detected_language_code: queryLanguage.code,
+          session_id: this.sessionId,
+          conversation_id: this.conversationId,
+        });
 
-      const response = await this.chatTransport.sendMessage(cleanedTranscript, {
-        conversationId: this.conversationId,
-        onDelta: (delta, accumulated) => {
-          if (delta && !this.state.phase.startsWith("receiving")) {
-            this.updateState({ phase: "receiving_ai_response" });
-            this.publishEvent("voice_receiving_ai_response", "Receiving AI Response", "The chatbot is streaming a spoken answer.", "info", "running", {
-              session_id: this.sessionId,
-              conversation_id: this.conversationId,
-              detected_language: queryLanguage.name,
-              detected_language_code: queryLanguage.code,
-            });
-          }
+        response = await this.chatTransport.sendMessage(cleanedTranscript, {
+          conversationId: this.conversationId,
+          source: "voice",
+          onDelta: (delta, accumulated) => {
+            if (delta && !this.state.phase.startsWith("receiving")) {
+              this.updateState({ phase: "receiving_ai_response" });
+              this.publishEvent("voice_receiving_ai_response", "Receiving AI Response", "The chatbot is streaming a spoken answer.", "info", "running", {
+                session_id: this.sessionId,
+                conversation_id: this.conversationId,
+                detected_language: queryLanguage.name,
+                detected_language_code: queryLanguage.code,
+              });
+            }
 
-          this.streamedResponse = accumulated;
-          this.updateState({ response: accumulated });
-        },
-      });
+            this.streamedResponse = accumulated;
+            this.updateState({ response: accumulated });
+          },
+        });
+      }
 
       const finalResponse = response ?? this.streamedResponse;
       if (!finalResponse.trim()) {
@@ -605,10 +670,10 @@ export class AetherVoiceEngine {
 
     this.paused = false;
     this.updateState({
-      phase: "listening",
+      phase: "starting",
       transcript: "",
       response: "",
-      listening: true,
+      listening: false,
       active: false,
       speaking: false,
     });
@@ -693,4 +758,3 @@ export class AetherVoiceEngine {
     }
   }
 }
-

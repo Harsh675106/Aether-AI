@@ -23,7 +23,8 @@ class Settings(BaseSettings):
     api_host: str = Field(default="0.0.0.0", alias="AETHER_API_HOST")
     api_port: int = Field(default=8000, alias="AETHER_API_PORT")
     cors_origins_raw: str = Field(
-        default="http://localhost:5173,http://127.0.0.1:5173", alias="AETHER_CORS_ORIGINS"
+        default="http://localhost:5173,http://127.0.0.1:5173,http://tauri.localhost,tauri://localhost",
+        alias="AETHER_CORS_ORIGINS",
     )
     secret_key: SecretStr = Field(default=SecretStr("change-me"), alias="AETHER_SECRET_KEY")
     postgres_dsn: str = Field(
@@ -66,7 +67,8 @@ class Settings(BaseSettings):
         default=str(BACKEND_DIR / "data" / "screenshots"), alias="AETHER_BROWSER_SCREENSHOT_DIR"
     )
     browser_user_data_dir: str = Field(
-        default=str(BACKEND_DIR / "data" / "browser" / "profiles"), alias="AETHER_BROWSER_USER_DATA_DIR"
+        default=str(BACKEND_DIR / "data" / "browser" / "profiles"),
+        alias="AETHER_BROWSER_USER_DATA_DIR",
     )
     browser_user_agent: str = Field(
         default="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -74,8 +76,13 @@ class Settings(BaseSettings):
     )
     browser_viewport_width: int = Field(default=1280, alias="AETHER_BROWSER_VIEWPORT_WIDTH")
     browser_viewport_height: int = Field(default=800, alias="AETHER_BROWSER_VIEWPORT_HEIGHT")
-    browser_retry_count: int = Field(default=3, alias="AETHER_BROWSER_RETRY_COUNT")
 
+    # Local Speech-to-Text configuration (Faster-Whisper)
+    voice_model_size: str = Field(default="base", alias="AETHER_VOICE_MODEL_SIZE")
+    voice_device: str = Field(default="cpu", alias="AETHER_VOICE_DEVICE")
+    voice_compute_type: str = Field(default="int8", alias="AETHER_VOICE_COMPUTE_TYPE")
+    voice_cpu_threads: int = Field(default=4, alias="AETHER_VOICE_CPU_THREADS")
+    browser_retry_count: int = Field(default=3, alias="AETHER_BROWSER_RETRY_COUNT")
 
     @property
     def cors_origins(self) -> list[str]:

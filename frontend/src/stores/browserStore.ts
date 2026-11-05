@@ -6,6 +6,7 @@ import {
   SnapPosition,
   BROWSER_LAYOUTS,
 } from '@/types/browser';
+import { normalizeUrl } from '@/voice/browserCommands';
 
 interface BrowserStore {
   state: BrowserState;
@@ -51,20 +52,12 @@ export const useBrowserStore = create<BrowserStore>((set, get) => ({
   lastUrl: 'https://www.google.com',
 
   openBrowser: async (url?: string, bounds?: { x: number; y: number; width: number; height: number }) => {
-    const targetUrl = url?.trim() || get().state.currentUrl || 'https://www.google.com';
+    const targetUrl = normalizeUrl(url?.trim() || get().state.currentUrl || 'https://www.google.com');
 
-    // 1. Immediately update in-memory state so the floating window renders instantly
-    set((s) => ({
-      lastUrl: targetUrl,
-      state: {
-        ...s.state,
-        isOpen: true,
-        isVisible: true,
-        currentUrl: targetUrl,
-      },
-    }));
-
-    // 2. Command native desktop Tauri child Chromium webview
+    // Record the native open intent before mounting BrowserWindow. The mounted
+    // component measures its real content area in a layout effect and is the
+    // only code path that attaches the child WebView when no explicit bounds
+    // were supplied.
     try {
       await invoke('browser_open', {
         url: targetUrl,
@@ -77,11 +70,22 @@ export const useBrowserStore = create<BrowserStore>((set, get) => ({
     } catch (err) {
       console.warn('[BrowserStore] Native window invoke note:', err);
     }
+
+    set((s) => ({
+      lastUrl: targetUrl,
+      state: {
+        ...s.state,
+        isOpen: true,
+        isVisible: true,
+        currentUrl: targetUrl,
+      },
+    }));
   },
 
   navigateBrowser: async (url: string) => {
-    const targetUrl = url.trim();
-    if (!targetUrl) return;
+    const trimmedUrl = url.trim();
+    if (!trimmedUrl) return;
+    const targetUrl = normalizeUrl(trimmedUrl);
 
     set((s) => ({
       lastUrl: targetUrl,

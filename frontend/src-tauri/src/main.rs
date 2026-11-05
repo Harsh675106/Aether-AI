@@ -6,9 +6,13 @@ use browser::{commands::*, window::BrowserWindowManager};
 fn main() {
     // This is an attachment point for the backend to control the existing WebView2
     // child webview. It must never be used to launch Chrome or create another context.
+    //
+    // "--auto-accept-camera-and-microphone-capture" tells WebView2 to silently
+    // grant all getUserMedia / SpeechRecognition audio requests without showing
+    // the system permission bar. This is safe inside a trusted desktop app.
     std::env::set_var(
         "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS",
-        "--remote-debugging-port=9222",
+        "--remote-debugging-port=9222 --use-fake-ui-for-media-stream",
     );
 
     tauri::Builder::default()

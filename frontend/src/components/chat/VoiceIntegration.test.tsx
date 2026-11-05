@@ -8,13 +8,17 @@ import { publishVoiceMonitoringEvent } from "@/voice/monitoring";
 describe("Voice Integration", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
-    Object.defineProperty(window, "SpeechRecognition", {
-      writable: true,
-      value: vi.fn().mockImplementation(() => ({
-        start: vi.fn(),
-        stop: vi.fn(),
-        abort: vi.fn(),
-      })),
+    vi.stubGlobal(
+      "MediaRecorder",
+      class {
+        static isTypeSupported() {
+          return true;
+        }
+      }
+    );
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: { getUserMedia: vi.fn() },
     });
     Object.defineProperty(window, "speechSynthesis", {
       writable: true,
@@ -58,4 +62,3 @@ describe("Voice Integration", () => {
     });
   });
 });
-

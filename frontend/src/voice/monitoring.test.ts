@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { describe, expect, it, beforeEach } from "vitest";
 import { publishVoiceMonitoringEvent, resetVoiceMonitoringState, subscribeVoiceMonitoringEvents } from "./monitoring";
 import { AetherVoiceEngine } from "./engine";
 import type { MonitoringEvent } from "@/types/monitoring";
@@ -7,15 +7,6 @@ describe("Voice Monitoring State Machine & Deduplication", () => {
   beforeEach(() => {
     resetVoiceMonitoringState();
     vi.restoreAllMocks();
-
-    Object.defineProperty(window, "SpeechRecognition", {
-      writable: true,
-      value: vi.fn().mockImplementation(() => ({
-        start: vi.fn(),
-        stop: vi.fn(),
-        abort: vi.fn(),
-      })),
-    });
 
     Object.defineProperty(window, "speechSynthesis", {
       writable: true,
@@ -58,17 +49,6 @@ describe("Voice Monitoring State Machine & Deduplication", () => {
 
   it("emits Listening Started once and does not duplicate on recognition session restarts", async () => {
     let sessionOnStartCallback: Function | null = null;
-
-    Object.defineProperty(window, "SpeechRecognition", {
-      writable: true,
-      value: vi.fn().mockImplementation(() => ({
-        start: vi.fn().mockImplementation(() => {
-          if (sessionOnStartCallback) sessionOnStartCallback();
-        }),
-        stop: vi.fn(),
-        abort: vi.fn(),
-      })),
-    });
 
     const mockRecognition = {
       createSession: vi.fn().mockImplementation((opts: any) => {

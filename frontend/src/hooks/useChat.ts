@@ -40,11 +40,20 @@ export function useChat() {
 
       try {
         switch (browserCmd.action) {
-          case "open":
-          case "navigate": {
+          case "open": {
             const url = browserCmd.url ?? "https://www.google.com";
             await browserStore.openBrowser(url);
             browserReply = `Opening ${url} in the floating browser.`;
+            break;
+          }
+          case "navigate": {
+            const url = browserCmd.url ?? "https://www.google.com";
+            if (browserStore.state.isOpen) {
+              await browserStore.navigateBrowser(url);
+            } else {
+              await browserStore.openBrowser(url);
+            }
+            browserReply = `Navigating to ${url} in the floating browser.`;
             break;
           }
           case "back":
@@ -233,6 +242,14 @@ export function useChat() {
     }
   }, [imageSearch, browserStore]);
 
+  const addLocalResponse = useCallback((userContent: string, assistantContent: string) => {
+    setMessages((current) => [
+      ...current,
+      { id: crypto.randomUUID(), text: userContent, role: "user" },
+      { id: crypto.randomUUID(), text: assistantContent, role: "assistant" },
+    ]);
+  }, []);
+
   const clearMessages = useCallback(() => {
     setMessages([]);
     setError(null);
@@ -244,8 +261,9 @@ export function useChat() {
       isStreaming,
       error,
       sendMessage,
+      addLocalResponse,
       clearMessages,
     }),
-    [messages, isStreaming, error, sendMessage, clearMessages]
+    [messages, isStreaming, error, sendMessage, addLocalResponse, clearMessages]
   );
 }

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useCallback } from "react";
+import React, { useEffect, useLayoutEffect, useRef, useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Loader2 } from "lucide-react";
 
@@ -58,6 +58,22 @@ export function BrowserWindow() {
       animFrameRef.current = null;
     });
   }, [syncWebviewBounds]);
+
+  // A native Tauri child WebView is not part of the DOM: it cannot follow a
+  // CSS transform and must be created only after this content box has a final
+  // layout rectangle. A layout effect runs after React commits the toolbar and
+  // content area, but before the first browser paint.
+  useLayoutEffect(() => {
+    if (!browserState.isOpen || !browserState.isVisible || !contentAreaRef.current) {
+      return;
+    }
+
+    syncWebviewBounds();
+
+    const observer = new ResizeObserver(syncWebviewBounds);
+    observer.observe(contentAreaRef.current);
+    return () => observer.disconnect();
+  }, [browserState.isOpen, browserState.isVisible, syncWebviewBounds]);
 
   // Sync window geometry when layout changes
   useEffect(() => {
@@ -253,9 +269,11 @@ export function BrowserWindow() {
     <AnimatePresence>
       <motion.div
         ref={containerRef}
-        initial={{ opacity: 0, scale: 0.95, y: 15 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.95, y: 15 }}
+        // Do not animate transform on the native-WebView parent. The child
+        // HWND/WebView2 surface is positioned independently of CSS transforms.
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
         transition={{ duration: 0.22, ease: "easeOut" }}
         style={{
           position: "fixed",

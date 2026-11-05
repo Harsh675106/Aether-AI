@@ -1,6 +1,6 @@
 # Aether AI
 
-Aether AI is a production-oriented foundation for an autonomous desktop AI system agent. This initial version establishes the architecture, tooling, configuration, and first working UI/API surfaces without implementing sensitive automation, memory, voice, vision, RAG, or plugin business logic.
+Aether AI is a production-oriented foundation for an autonomous desktop AI system agent. This project establishes the architecture and local UI/API surfaces, including chat, browser integration, and local Faster-Whisper voice transcription.
 
 ## Architecture
 
@@ -87,12 +87,11 @@ Implemented:
 - SQLite-backed conversation history storage for multi-turn chats and conversation reconstruction.
 - A modular web retrieval layer for SearXNG queries, HTML cleanup, and content extraction.
 
-Intentionally deferred:
+Still evolving:
 
 - Real desktop automation.
 - Real browser automation.
 - Real long-term memory and vector ingestion.
-- Real voice and vision pipelines.
+- Vision pipeline.
 - Real plugin execution.
 - Provider-specific LLM calls.
-
