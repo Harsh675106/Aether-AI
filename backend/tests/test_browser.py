@@ -140,7 +140,10 @@ async def test_intent_detection_and_routing() -> None:
     # Validate intent extraction
     intent = classifier.classify("open youtube.com")
     assert intent.category == IntentCategory.BROWSER_ACTION
-    
+
+    intent_bare = classifier.classify("open youtube")
+    assert intent_bare.category == IntentCategory.BROWSER_ACTION
+
     decision = router.decide(intent)
     assert decision.use_planner is True
     assert decision.use_tools is True

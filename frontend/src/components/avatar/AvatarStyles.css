@@ -1,0 +1,329 @@
+/* Aether's mature white + blue robotic identity.
+   Preserves the existing CSS-only avatar, AvatarController states,
+   expressions, lip-sync variables, and animation hooks. */
+
+.aether-avatar-container{
+  --aether-accent:#36a9ff;
+  --aether-cyan:#62d5ff;
+  --aether-white:#f4f9ff;
+  --aether-silver:#b9c9d8;
+  --aether-steel:#71879b;
+  --aether-dark:#02070e;
+  --aether-glow:.82;
+  --eye-x:0px;--eye-y:0px;--blink:0;--mouth-open:.06;--mouth-width:.5;
+  position:relative;display:grid;place-items:center;isolation:isolate;flex:none;overflow:visible;
+  border-radius:50%;color:var(--aether-accent);
+  background:
+    radial-gradient(circle at 48% 18%,#f8fcff 0%,#d7e4ef 10%,#6f8599 22%,#152637 40%,#050b13 70%,#01040a 100%);
+  border:1px solid color-mix(in srgb,var(--aether-white) 72%,var(--aether-accent) 28%);
+  box-shadow:
+    inset 0 2px 0 #ffffffaa,
+    inset 0 -18px 32px #000b,
+    0 0 calc(22px * var(--aether-glow)) color-mix(in srgb,var(--aether-accent) 38%,transparent),
+    0 14px 35px #000b;
+  transition:border-color .45s ease,box-shadow .45s ease,background .45s ease
+}
+.aether-avatar-container:before,.aether-avatar-container:after{
+  content:"";position:absolute;inset:5%;border-radius:inherit;pointer-events:none
+}
+.aether-avatar-container:before{
+  border:1px solid #f4fbff35;
+  background:conic-gradient(from 220deg,transparent 0 25%,#ffffff20 30%,transparent 38% 75%,color-mix(in srgb,var(--aether-accent) 20%,transparent) 82%,transparent 88%)
+}
+.aether-avatar-container:after{
+  inset:12%;background:radial-gradient(ellipse at 50% 0,#ffffff2e,transparent 47%);
+  mix-blend-mode:screen
+}
+.aether-avatar-aura{
+  position:absolute;inset:8%;z-index:-3;border-radius:inherit;background:var(--aether-accent);
+  filter:blur(24px);opacity:calc(var(--aether-glow) * .2);
+  transition:background .45s ease,opacity .3s ease
+}
+.aether-avatar-orbit{position:absolute;z-index:-2;border-radius:50%;pointer-events:none}
+.aether-avatar-orbit--outer{
+  inset:-9%;border:1px dashed color-mix(in srgb,var(--aether-cyan) 52%,transparent);
+  animation:aether-orbit 26s linear infinite
+}
+.aether-avatar-orbit--inner{
+  inset:-3%;border:1px solid transparent;
+  border-top-color:color-mix(in srgb,var(--aether-white) 88%,var(--aether-accent));
+  border-right-color:#dff6ff42;
+  animation:aether-orbit 14s linear infinite reverse
+}
+.aether-avatar-listening-pulse{
+  position:absolute;inset:-14%;z-index:-4;border:1px solid var(--aether-cyan);
+  border-radius:50%;animation:aether-pulse 1.8s ease-out infinite
+}
+
+.aether-avatar-head{
+  position:absolute;width:78%;height:87%;transform-style:preserve-3d;
+  transition:transform .1s ease-out
+}
+.aether-avatar-cranium{
+  position:absolute;inset:2% 4% 0;
+  border:1px solid #ffffff9c;
+  border-radius:45% 45% 35% 35%/37% 37% 48% 48%;
+  background:
+    radial-gradient(ellipse at 50% 5%,#ffffff 0%,#eaf2f9 18%,transparent 37%),
+    linear-gradient(120deg,#f8fbff 0%,#c7d4df 27%,#647b8f 47%,#172838 72%,#070e17 100%);
+  box-shadow:
+    inset 8px 9px 17px #ffffff55,
+    inset -13px -14px 22px #000b,
+    0 0 18px color-mix(in srgb,var(--aether-accent) 20%,transparent)
+}
+.aether-avatar-cranium:before{
+  content:"";position:absolute;inset:7% 10%;border-radius:inherit;
+  border-top:1px solid #ffffffc9;border-bottom:1px solid #000b
+}
+.aether-avatar-cranium:after{
+  content:"";position:absolute;top:16%;left:13%;right:13%;height:1px;
+  background:linear-gradient(90deg,transparent,var(--aether-cyan),transparent);opacity:.5
+}
+.aether-avatar-temple{
+  position:absolute;top:31%;width:15%;height:37%;
+  background:linear-gradient(135deg,#e8f0f6 0%,#91a5b6 40%,#162635 76%);
+  border:1px solid #ffffff75;
+  box-shadow:inset 0 0 8px color-mix(in srgb,var(--aether-cyan) 25%,transparent),0 0 7px #0007;
+  clip-path:polygon(0 12%,100% 0,90% 100%,10% 89%)
+}
+.aether-avatar-temple--left{left:-5%}
+.aether-avatar-temple--right{right:-5%;transform:scaleX(-1)}
+.aether-avatar-forehead-mark{
+  position:absolute;top:13%;left:50%;width:16%;height:17%;
+  transform:translateX(-50%);
+  border:1px solid color-mix(in srgb,var(--aether-cyan) 72%,white);
+  clip-path:polygon(50% 0,100% 32%,74% 100%,26% 100%,0 32%);
+  box-shadow:0 0 12px color-mix(in srgb,var(--aether-cyan) 55%,transparent),
+             inset 0 0 9px color-mix(in srgb,var(--aether-accent) 40%,transparent)
+}
+.aether-avatar-forehead-mark span{
+  position:absolute;left:50%;top:24%;width:2px;height:58%;
+  transform:translateX(-50%);background:var(--aether-cyan);
+  box-shadow:0 0 7px var(--aether-cyan)
+}
+.aether-avatar-scanline{
+  position:absolute;top:28%;left:18%;right:18%;height:1px;opacity:.35;
+  background:linear-gradient(90deg,transparent,var(--aether-cyan),transparent)
+}
+
+.aether-avatar-eyes{
+  position:absolute;top:40%;left:15%;right:15%;
+  display:flex;justify-content:space-between;z-index:2
+}
+.aether-avatar-eye{
+  position:relative;width:32%;height:20px;overflow:hidden;
+  border-radius:46% 46% 42% 42%;background:#01050b;
+  transform:skewY(-4deg);
+  box-shadow:inset 0 0 0 1px #c9efff78,0 0 12px color-mix(in srgb,var(--aether-accent) 48%,transparent);
+  transition:height .25s ease,border-radius .25s ease,transform .25s ease
+}
+.aether-avatar-eye--right{transform:skewY(4deg)}
+.aether-avatar-eye-housing{
+  position:absolute;inset:2px;border:1px solid color-mix(in srgb,var(--aether-cyan) 55%,#dce8f1);
+  border-radius:inherit;opacity:.9
+}
+.aether-avatar-eye-light{
+  position:absolute;left:50%;top:50%;width:55%;height:44%;
+  transform:translate(calc(-50% + var(--eye-x)),calc(-50% + var(--eye-y)));
+  border-radius:50%;
+  background:radial-gradient(circle,#fff 0 9%,#bcecff 20%,var(--aether-cyan) 42%,var(--aether-accent) 56%,transparent 75%);
+  box-shadow:0 0 8px var(--aether-cyan),0 0 20px color-mix(in srgb,var(--aether-accent) 78%,transparent);
+  transition:transform .1s linear
+}
+.aether-avatar-eye-core{position:absolute;inset:36% 42%;border-radius:50%;background:#06111d}
+.aether-avatar-eye-glint{
+  position:absolute;left:23%;top:14%;width:18%;aspect-ratio:1;border-radius:50%;
+  background:#fff;box-shadow:0 0 6px #fff
+}
+.aether-avatar-eyelid{
+  position:absolute;inset:0;transform-origin:top;transform:scaleY(var(--blink));
+  background:linear-gradient(#9fb2c1,#182b3d);box-shadow:0 2px 3px #000b
+}
+.aether-avatar-brow{
+  position:absolute;top:31%;width:26%;height:5%;
+  border-top:2px solid color-mix(in srgb,var(--aether-white) 76%,var(--aether-accent));
+  opacity:.9;transition:transform .3s ease
+}
+.aether-avatar-brow--left{left:17%;transform:rotate(6deg)}
+.aether-avatar-brow--right{right:17%;transform:rotate(-6deg)}
+.aether-avatar-nose-bridge{
+  position:absolute;top:47%;left:50%;width:12%;height:21%;
+  transform:translateX(-50%);
+  border-left:1px solid #d9f2ff42;border-right:1px solid #d9f2ff26;
+  clip-path:polygon(35% 0,65% 0,100% 100%,0 100%);
+  background:linear-gradient(90deg,transparent,#9acbeb20,transparent)
+}
+.aether-avatar-cheek{
+  position:absolute;top:59%;width:22%;height:17%;
+  border-top:1px solid color-mix(in srgb,var(--aether-cyan) 38%,#d9e5ee);
+  background:linear-gradient(145deg,#c5d7e530,transparent)
+}
+.aether-avatar-cheek--left{left:12%;clip-path:polygon(0 0,100% 20%,78% 100%,14% 66%)}
+.aether-avatar-cheek--right{right:12%;transform:scaleX(-1);clip-path:polygon(0 0,100% 20%,78% 100%,14% 66%)}
+
+.aether-avatar-mouth{
+  position:absolute;left:50%;bottom:14%;width:39%;height:16%;
+  transform:translateX(-50%) scaleX(var(--mouth-width));transform-origin:center;
+  transition:transform .08s ease-out;z-index:3
+}
+.aether-avatar-mouth-cavity{
+  position:absolute;left:0;right:0;top:50%;
+  height:calc(4px + var(--mouth-open) * 13px);min-height:3px;
+  transform:translateY(-50%);display:flex;align-items:center;justify-content:center;
+  gap:7%;overflow:hidden;
+  border:1px solid color-mix(in srgb,var(--aether-cyan) 78%,#e7f6ff);
+  border-radius:42% 42% 54% 54%;
+  background:#01050b;
+  box-shadow:inset 0 0 9px color-mix(in srgb,var(--aether-accent) 52%,transparent),
+             0 0 10px color-mix(in srgb,var(--aether-cyan) 42%,transparent);
+  transition:height .075s ease-out,border-radius .12s ease,filter .2s ease
+}
+.aether-avatar-mouth-light{
+  position:absolute;bottom:1px;left:10%;right:10%;height:28%;
+  border-radius:inherit;background:var(--aether-cyan);opacity:.82;filter:blur(1px)
+}
+.aether-avatar-mouth-segment{
+  position:relative;width:9%;height:58%;border-radius:3px;
+  background:#eafaff;box-shadow:0 0 6px var(--aether-cyan)
+}
+.aether-avatar-chin-light{
+  position:absolute;bottom:7%;left:38%;right:38%;height:1px;
+  background:var(--aether-cyan);box-shadow:0 0 7px var(--aether-cyan);opacity:.65
+}
+
+.aether-avatar-container[data-state="thinking"] .aether-avatar-orbit--inner{animation-duration:4s}
+.aether-avatar-container[data-state="thinking"] .aether-avatar-forehead-mark{animation:aether-thinking 1.8s ease-in-out infinite}
+.aether-avatar-container[data-state="thinking"] .aether-avatar-eye-light{animation:aether-focus-shift 2.6s ease-in-out infinite}
+.aether-avatar-container[data-state="speaking"] .aether-avatar-mouth-light{animation:aether-speech-light .18s ease-in-out infinite alternate}
+.aether-avatar-container[data-state="speaking"] .aether-avatar-eye-light{filter:brightness(1.18)}
+.aether-avatar-container[data-state="listening"] .aether-avatar-cranium{
+  box-shadow:inset 8px 9px 17px #ffffff35,inset -13px -14px 22px #000b,
+             0 0 28px color-mix(in srgb,var(--aether-accent) 48%,transparent)
+}
+.aether-avatar-container[data-state="error"]{--aether-accent:#ff6b7a;--aether-cyan:#ff9aa5}
+.aether-avatar-container[data-state="sleep"] .aether-avatar-aura{opacity:.06}
+.aether-avatar-container[data-expression="happy"] .aether-avatar-mouth-cavity,
+.aether-avatar-container[data-expression="excited"] .aether-avatar-mouth-cavity,
+.aether-avatar-container[data-mouth="Smile"] .aether-avatar-mouth-cavity{border-radius:18% 18% 68% 68%}
+.aether-avatar-container[data-expression="thinking"] .aether-avatar-brow--left{transform:translateY(-2px) rotate(-9deg)}
+.aether-avatar-container[data-expression="thinking"] .aether-avatar-brow--right{transform:translateY(2px) rotate(-1deg)}
+.aether-avatar-container[data-expression="curious"] .aether-avatar-brow--left,
+.aether-avatar-container[data-expression="surprised"] .aether-avatar-brow--left{transform:translateY(-3px) rotate(2deg)}
+.aether-avatar-container[data-expression="curious"] .aether-avatar-brow--right,
+.aether-avatar-container[data-expression="surprised"] .aether-avatar-brow--right{transform:translateY(-3px) rotate(-2deg)}
+.aether-avatar-container[data-expression="surprised"] .aether-avatar-eye{height:23px;border-radius:48%}
+.aether-avatar-container[data-expression="concerned"] .aether-avatar-brow--left,
+.aether-avatar-container[data-expression="sad"] .aether-avatar-brow--left{transform:rotate(-11deg)}
+.aether-avatar-container[data-expression="concerned"] .aether-avatar-brow--right,
+.aether-avatar-container[data-expression="sad"] .aether-avatar-brow--right{transform:rotate(11deg)}
+.aether-avatar-container[data-expression="sad"] .aether-avatar-mouth-cavity,
+.aether-avatar-container[data-mouth="Sad"] .aether-avatar-mouth-cavity{border-radius:65% 65% 20% 20%}
+.aether-avatar-container[data-mouth="RoundO"] .aether-avatar-mouth-cavity,
+.aether-avatar-container[data-mouth="O"] .aether-avatar-mouth-cavity,
+.aether-avatar-container[data-mouth="U"] .aether-avatar-mouth-cavity,
+.aether-avatar-container[data-mouth="Surprised"] .aether-avatar-mouth-cavity{border-radius:48%}
+.aether-avatar-container[data-mouth="WideOpen"] .aether-avatar-mouth-cavity,
+.aether-avatar-container[data-mouth="A"] .aether-avatar-mouth-cavity{border-radius:34% 34% 45% 45%}
+.aether-avatar-container[data-mouth="I"] .aether-avatar-mouth-cavity,
+.aether-avatar-container[data-mouth="E"] .aether-avatar-mouth-cavity{border-radius:22% 22% 48% 48%}
+.aether-avatar-container[data-mouth="M"],
+.aether-avatar-container[data-mouth="Closed"]{--mouth-open:.04}
+
+@keyframes aether-orbit{to{transform:rotate(360deg)}}
+@keyframes aether-pulse{0%{transform:scale(.88);opacity:.8}100%{transform:scale(1.22);opacity:0}}
+@keyframes aether-thinking{50%{filter:brightness(1.8);transform:translateX(-50%) scale(1.08)}}
+@keyframes aether-focus-shift{50%{transform:translate(calc(-50% + 3px),calc(-50% - 1px))}}
+@keyframes aether-speech-light{to{opacity:.34;transform:scaleX(.72)}}
+@keyframes aether-node-pulse{50%{box-shadow:0 0 0 2px #020711,0 0 20px color-mix(in srgb,var(--aether-accent) 72%,transparent);transform:translateX(-50%) scale(1.05)}}
+
+@media (prefers-reduced-motion:reduce){
+  .aether-avatar-orbit,.aether-avatar-listening-pulse,.aether-avatar-forehead-mark,
+  .aether-avatar-mouth-light,.aether-avatar-eye-light,.aether-avatar-crown-node{animation:none!important}
+  .aether-avatar-head,.aether-avatar-eye-light{transition:none}
+}
+
+/* Mature white/silver armored faceplate and HUD layers. */
+.aether-avatar-hud{
+  position:absolute;z-index:-1;left:9%;right:9%;height:16%;
+  border:1px solid color-mix(in srgb,var(--aether-cyan) 52%,transparent);
+  opacity:.78;pointer-events:none
+}
+.aether-avatar-hud--top{top:-4%;border-bottom:0;border-radius:50% 50% 0 0}
+.aether-avatar-hud--bottom{bottom:-4%;border-top:0;border-radius:0 0 50% 50%}
+.aether-avatar-crown-node{
+  position:absolute;z-index:2;top:6%;left:50%;width:23%;aspect-ratio:1;
+  transform:translateX(-50%);display:grid;place-items:center;
+  border:1px solid #ffffffaa;border-radius:50%;
+  background:radial-gradient(circle,#dff6ff 0 20%,#17344f 25% 55%,#e7f5ff 58% 62%,#1a2b3b 66%);
+  box-shadow:0 0 0 2px #020711,0 0 15px color-mix(in srgb,var(--aether-accent) 55%,transparent)
+}
+.aether-avatar-crown-node:before{
+  content:"";position:absolute;inset:17%;border:1px solid var(--aether-cyan);
+  border-radius:inherit;box-shadow:inset 0 0 8px var(--aether-cyan)
+}
+.aether-avatar-crown-node span{
+  position:relative;width:30%;height:33%;
+  clip-path:polygon(50% 0,100% 100%,72% 100%,50% 54%,28% 100%,0 100%);
+  background:var(--aether-cyan);filter:drop-shadow(0 0 4px var(--aether-cyan))
+}
+.aether-avatar-faceplate{
+  position:absolute;z-index:0;top:25%;bottom:11%;left:14%;right:14%;
+  border:1px solid #d8efff48;
+  border-radius:39% 39% 47% 47%/27% 27% 46% 46%;
+  background:radial-gradient(ellipse at 50% 20%,#162f4a 0%,#07111d 44%,#01050b 82%);
+  box-shadow:inset 0 1px 0 #dff6ff2b,inset 0 -15px 25px #000b,0 0 10px #1497ff24
+}
+.aether-avatar-faceplate:after{
+  content:"";position:absolute;inset:2% 7%;border-radius:inherit;
+  border-left:1px solid color-mix(in srgb,var(--aether-cyan) 52%,transparent);
+  border-right:1px solid color-mix(in srgb,var(--aether-cyan) 52%,transparent);opacity:.85
+}
+.aether-avatar-eye-rings{
+  position:absolute;left:50%;top:50%;width:150%;aspect-ratio:1;
+  transform:translate(-50%,-50%);
+  border:1px dashed color-mix(in srgb,var(--aether-cyan) 58%,transparent);
+  border-radius:50%;opacity:.65
+}
+.aether-avatar-eye-rings:before,.aether-avatar-eye-rings:after{
+  content:"";position:absolute;border:1px solid color-mix(in srgb,var(--aether-accent) 38%,transparent);
+  border-radius:50%
+}
+.aether-avatar-eye-rings:before{inset:17%}
+.aether-avatar-eye-rings:after{inset:33%;border-style:dotted}
+.aether-avatar-jaw{
+  position:absolute;z-index:1;left:31%;right:31%;bottom:4%;height:14%;
+  border:1px solid #e1f1ff58;border-radius:15% 15% 38% 38%;
+  background:linear-gradient(#dce7ef,#5b7184 48%,#0b1520);
+  box-shadow:inset 0 1px #ffffff42
+}
+.aether-avatar-jaw:after{
+  content:"";position:absolute;inset:25% 25%;border-radius:2px;
+  background:linear-gradient(90deg,transparent,var(--aether-cyan),transparent);
+  box-shadow:0 0 6px var(--aether-cyan)
+}
+.aether-avatar-container[data-state="thinking"] .aether-avatar-crown-node{animation:aether-node-pulse 1.8s ease-in-out infinite}
+.aether-avatar-container[data-state="speaking"] .aether-avatar-eye-rings{animation:aether-orbit 5s linear infinite}
+.aether-avatar-container[data-expression="excited"] .aether-avatar-crown-node,
+.aether-avatar-container[data-expression="happy"] .aether-avatar-crown-node{filter:brightness(1.18)}
+/* Slim lower-face profile: preserve lip-sync geometry while moving it lower. */
+.aether-avatar-mouth{bottom:9%;width:34%;height:12%}.aether-avatar-mouth-cavity{border-radius:34% 34% 48% 48%}.aether-avatar-jaw{left:36%;right:36%;bottom:2%;height:9%;border-radius:12% 12% 30% 30%;clip-path:polygon(8% 0,92% 0,100% 70%,72% 100%,28% 100%,0 70%)}.aether-avatar-jaw:after{inset:27% 30%}.aether-avatar-chin-light{bottom:3.5%;left:42%;right:42%}
+/* White/silver nose bridge. */
+.aether-avatar-nose-bridge{border-left-color:#f5fbff;border-right-color:#a9c7dc;background:linear-gradient(90deg,transparent 0%,#dff1fb 30%,#ffffff 50%,#b7d2e2 70%,transparent 100%);box-shadow:0 0 7px #38bdf84d}
+/* Match the nose bridge to the brushed silver outer shell. */
+.aether-avatar-nose-bridge{border-left-color:#b9ccda;border-right-color:#526b7d;background:linear-gradient(90deg,transparent 0%,#718b9e 24%,#c6d5df 48%,#8fa8b8 70%,transparent 100%);box-shadow:0 0 5px #38bdf833}
+/* Human-like lower jaw: broad at the cheeks, angled into a narrow chin. */
+.aether-avatar-jaw{left:25%;right:25%;bottom:1%;height:17%;border-radius:0;clip-path:polygon(6% 0,94% 0,82% 66%,64% 94%,50% 100%,36% 94%,18% 66%);background:linear-gradient(180deg,#dce9f0 0%,#91aabd 48%,#42586a 100%);border-color:#d9eef9;box-shadow:inset 0 1px #fff,0 5px 10px #0005}.aether-avatar-jaw:after{inset:67% 38% 13%;border-radius:1px}.aether-avatar-chin-light{bottom:3%;left:46%;right:46%}
+/* No separate jaw element; the lower faceplate carries the slim silver chin detail. */
+.aether-avatar-jaw{display:none}.aether-avatar-faceplate:after{inset:auto 18% 8%;height:24%;border:1px solid #d7edf8;border-top-color:#f8fdff;border-radius:9% 9% 35% 35%;clip-path:polygon(5% 0,95% 0,82% 70%,62% 100%,38% 100%,18% 70%);background:linear-gradient(180deg,#dcebf3 0%,#9bb5c5 48%,#526b7c 100%);box-shadow:inset 0 1px #fff,0 4px 9px #0005;opacity:1}.aether-avatar-mouth{bottom:15%;z-index:4}.aether-avatar-chin-light{bottom:8%;z-index:4}
+/* Larger full-width lip-sync mouth placed at the lower face. */
+.aether-avatar-mouth{bottom:6%;width:54%;height:18%;z-index:5}.aether-avatar-mouth-cavity{min-height:5px;border-radius:38% 38% 50% 50%;box-shadow:inset 0 0 10px #38bdf8a6,0 0 12px #38bdf88a}.aether-avatar-mouth-light{left:4%;right:4%;height:36%;opacity:.92}.aether-avatar-mouth-segment{width:11%;height:64%;box-shadow:0 0 7px #7dd3fc}.aether-avatar-chin-light{bottom:2.5%;left:38%;right:38%}
+/* Remove the lower faceplate overlay between the nose and mouth. */
+.aether-avatar-faceplate:after{display:none}
+/* Unified silver-white avatar: central faceplate now matches the outer armor. */
+.aether-avatar-faceplate{background:radial-gradient(ellipse at 50% 16%,#ffffff 0%,#e5f0f5 26%,#b5c8d3 56%,#70899a 100%);border-color:#effaff;box-shadow:inset 0 1px 0 #fff,inset -10px -14px 20px #52697a88,0 0 12px #38bdf847}.aether-avatar-faceplate:before{content:"";position:absolute;inset:3% 8%;border-radius:inherit;background:linear-gradient(115deg,#ffffff52,transparent 28%,transparent 64%,#526b7c4d);pointer-events:none}.aether-avatar-nose-bridge{z-index:2}.aether-avatar-eyes,.aether-avatar-brow,.aether-avatar-mouth{z-index:3}.aether-avatar-container{background:radial-gradient(circle at 48% 20%,#f6fcff 0%,#b9cfdd 22%,#526b7c 53%,#0a121b 87%)}
+
+/* Match eyebrow illumination to the sky-blue eye color. */
+.aether-avatar-brow{border-top-color:#38bdf8;opacity:1;filter:drop-shadow(0 0 3px #38bdf8) drop-shadow(0 0 6px #7dd3fc)}
+
+/* Unified electric sky-blue illumination for the robotic avatar. */
+.aether-avatar-container{--aether-accent:#22d3ee}.aether-avatar-aura{background:#22d3ee}.aether-avatar-orbit--outer{border-color:#38bdf899}.aether-avatar-orbit--inner{border-top-color:#38bdf8;border-right-color:#7dd3fc8c}.aether-avatar-hud{border-color:#38bdf8b3}.aether-avatar-crown-node span,.aether-avatar-forehead-mark span,.aether-avatar-chin-light{background:#38bdf8;box-shadow:0 0 7px #38bdf8,0 0 13px #22d3ee}.aether-avatar-crown-node,.aether-avatar-forehead-mark{border-color:#7dd3fc;box-shadow:0 0 10px #38bdf88a,inset 0 0 8px #22d3ee70}.aether-avatar-eye{box-shadow:inset 0 0 0 1px #b6f3ff8c,0 0 14px #38bdf8a3}.aether-avatar-eye-light{background:radial-gradient(circle,#ffffff 0 8%,#dffaff 20%,#38bdf8 45%,#0284c7 58%,transparent 74%);box-shadow:0 0 8px #7dd3fc,0 0 20px #22d3ee}.aether-avatar-brow{border-top-color:#38bdf8;filter:drop-shadow(0 0 3px #38bdf8) drop-shadow(0 0 7px #22d3ee)}.aether-avatar-mouth-cavity{border-color:#38bdf8;box-shadow:inset 0 0 9px #22d3ee8c,0 0 11px #38bdf88a}.aether-avatar-mouth-light{background:#38bdf8}.aether-avatar-mouth-segment{background:#e0faff;box-shadow:0 0 7px #38bdf8}

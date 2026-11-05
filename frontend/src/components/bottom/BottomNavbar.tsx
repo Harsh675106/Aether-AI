@@ -1,7 +1,8 @@
 import { motion } from "framer-motion";
+import { FolderOpen, Images } from "lucide-react";
 
-import { Images } from 'lucide-react';
-import { useImageSearch } from '@/components/image-search';
+import { useImageSearch } from "@/components/image-search";
+import { useFiles } from "@/components/files";
 
 const navItems = [
   "Logs",
@@ -16,6 +17,7 @@ const navItems = [
 
 export function BottomNavbar() {
   const { openHistory, history } = useImageSearch();
+  const { openFiles, screenshots } = useFiles();
 
   return (
     <>
@@ -45,7 +47,7 @@ export function BottomNavbar() {
           />
         </div>
 
-        <div className="relative flex flex-wrap items-center justify-center gap-8 text-[11px] uppercase tracking-[0.28em] text-slate-200">
+        <div className="relative flex flex-wrap items-center justify-center gap-6 text-[11px] uppercase tracking-[0.28em] text-slate-200">
           <button
             type="button"
             onClick={() => void openHistory()}
@@ -53,20 +55,40 @@ export function BottomNavbar() {
             aria-label="Reopen image history"
             title="Reopen stored image requests"
           >
-            <Images className="h-4 w-4" />
+            <Images className="h-4 w-4 text-cyan-300" />
             Images{history.length ? ` (${history.length})` : ""}
             <span className="pointer-events-none absolute inset-x-0 bottom-0 h-0.5 scale-x-0 rounded-full bg-gradient-to-r from-white via-cyan-300 to-blue-500 opacity-0 transition duration-300 ease-in-out group-hover:scale-x-100 group-hover:opacity-90" />
           </button>
-          {navItems.map((item) => (
-            <button
-              key={item}
-              type="button"
-              className="group relative rounded-full border border-white/10 bg-slate-950/15 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.3em] text-white transition duration-300 ease-in-out hover:border-white/30 hover:bg-slate-950/25 hover:text-white hover:shadow-[0_0_18px_rgba(56,189,248,0.28)]"
-            >
-              {item}
-              <span className="pointer-events-none absolute inset-x-0 bottom-0 h-0.5 scale-x-0 rounded-full bg-gradient-to-r from-white via-cyan-300 to-blue-500 opacity-0 transition duration-300 ease-in-out group-hover:scale-x-100 group-hover:opacity-90" />
-            </button>
-          ))}
+
+          {navItems.map((item) => {
+            if (item === "Files") {
+              return (
+                <button
+                  key={item}
+                  type="button"
+                  onClick={openFiles}
+                  className="group relative inline-flex items-center gap-2 rounded-full border border-sky-400/30 bg-sky-950/20 px-3.5 py-2 text-[11px] font-semibold uppercase tracking-[0.3em] text-sky-200 transition duration-300 ease-in-out hover:border-sky-400/60 hover:bg-sky-950/40 hover:text-white hover:shadow-[0_0_20px_rgba(56,189,248,0.35)]"
+                  aria-label="Open files and memory screenshots"
+                  title="View captured screenshots in memory"
+                >
+                  <FolderOpen className="h-4 w-4 text-sky-400" />
+                  Files{screenshots.length ? ` (${screenshots.length})` : ""}
+                  <span className="pointer-events-none absolute inset-x-0 bottom-0 h-0.5 scale-x-0 rounded-full bg-gradient-to-r from-cyan-400 via-sky-300 to-blue-500 opacity-0 transition duration-300 ease-in-out group-hover:scale-x-100 group-hover:opacity-100" />
+                </button>
+              );
+            }
+
+            return (
+              <button
+                key={item}
+                type="button"
+                className="group relative rounded-full border border-white/10 bg-slate-950/15 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.3em] text-white transition duration-300 ease-in-out hover:border-white/30 hover:bg-slate-950/25 hover:text-white hover:shadow-[0_0_18px_rgba(56,189,248,0.28)]"
+              >
+                {item}
+                <span className="pointer-events-none absolute inset-x-0 bottom-0 h-0.5 scale-x-0 rounded-full bg-gradient-to-r from-white via-cyan-300 to-blue-500 opacity-0 transition duration-300 ease-in-out group-hover:scale-x-100 group-hover:opacity-90" />
+              </button>
+            );
+          })}
         </div>
       </motion.nav>
     </>

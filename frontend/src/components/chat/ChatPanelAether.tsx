@@ -1,6 +1,6 @@
-﻿import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import { Mic, MicOff, Square, Sparkles, Volume2, Radio, Loader2, ArrowDown } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 import { AetherLogo } from "@/components/aether/AetherLogo";
 import { LightningLoader } from "@/components/chat/LightningLoader";
@@ -8,6 +8,7 @@ import { MarkdownMessage } from "@/components/chat/Markdown/MarkdownMessage";
 import { useChat } from "@/hooks/useChat";
 import { useVoiceAssistant } from "@/hooks/useVoiceAssistant";
 import { useSmartScroll } from "@/hooks/useSmartScroll";
+import { AvatarController } from "@/components/avatar";
 
 export function ChatPanelAether() {
   const [draft, setDraft] = useState("");
@@ -21,6 +22,25 @@ export function ChatPanelAether() {
   const isListening = voiceState.listening || phase === "listening";
   const isSpeaking = voiceState.speaking || phase === "speaking";
   const isProcessing = phase === "processing_speech" || phase === "sending_to_chatbot" || phase === "receiving_ai_response" || phase === "converting_to_speech";
+
+  // Sync state changes with AvatarController
+  useEffect(() => {
+    const controller = AvatarController.getInstance();
+    if (error) {
+      controller.setState("error");
+    } else if (isListening) {
+      controller.setState("listening");
+    } else if (isProcessing || isStreaming) {
+      controller.setState("thinking");
+    } else if (isSpeaking) {
+      controller.setState("speaking");
+    } else if (phase === "completed") {
+      controller.setState("success");
+    } else {
+      controller.setState("idle");
+    }
+  }, [isListening, isProcessing, isStreaming, isSpeaking, error, phase]);
+
 
   const {
     containerRef,

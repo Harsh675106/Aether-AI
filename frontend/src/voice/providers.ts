@@ -1,4 +1,6 @@
 import { findBestVoiceForLanguage, type LanguageConfig } from "./languages";
+import { AvatarController } from "@/components/avatar";
+
 
 export type SpeechRecognitionSessionOptions = {
   language: string;
@@ -237,6 +239,9 @@ class BrowserSpeechSynthesisProvider implements TextToSpeechProvider {
     const synth = window.speechSynthesis;
     synth.cancel();
 
+    const controller = AvatarController.getInstance();
+    controller.startSpeaking({ text });
+
     await new Promise<void>((resolve) => {
       const utterance = new SpeechSynthesisUtterance(text);
       utterance.lang = options.language || "en-IN";
@@ -265,12 +270,19 @@ class BrowserSpeechSynthesisProvider implements TextToSpeechProvider {
       const done = () => {
         if (!resolved) {
           resolved = true;
+          controller.stopSpeaking();
           resolve();
         }
       };
 
       utterance.onend = done;
       utterance.onerror = done;
+
+      utterance.onboundary = (event) => {
+        if (event.name === "word") {
+          controller.handleWordBoundary(event.charIndex, event.charLength || 0);
+        }
+      };
 
       // Timeout fallback safeguard in case browser TTS event is delayed
       const maxSpeechMs = Math.max(3000, text.length * 120);
@@ -286,6 +298,7 @@ class BrowserSpeechSynthesisProvider implements TextToSpeechProvider {
         window.speechSynthesis.cancel();
       } catch {}
     }
+    AvatarController.getInstance().stopSpeaking();
   }
 }
 

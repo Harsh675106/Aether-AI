@@ -69,12 +69,15 @@ Open a **third terminal**, navigate to the backend, and start the API:
 ```powershell
 cd backend
 ..\.venv\Scripts\Activate.ps1
+$env:AETHER_BROWSER_HEADLESS="false"
 uvicorn app.main:create_app --factory --host 127.0.0.1 --port 8001
 ```
 
 > 🔑 Keep this terminal open as well.
 > 
 > ✓ You'll see: `Uvicorn running on http://127.0.0.1:8001`
+> 
+> 💡 This ensures Playwright opens a visible Chromium window for browser commands.
 
 ---
 

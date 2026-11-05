@@ -221,6 +221,60 @@ def test_ranking_penalizes_pakistan_punjab_for_india_cm_query() -> None:
     assert ranked[0].url == "https://cmoffice.punjab.gov.in/"
 
 
+def test_searxng_client_determines_dynamic_categories() -> None:
+    from app.web.search import SearXNGClient
+
+    client = SearXNGClient()
+
+    assert client._determine_categories("Latest breaking news today") == "general,news"
+    assert client._determine_categories("Current Education Minister India 2026") == "general,news"
+    assert client._determine_categories("Python FastAPI async docker setup") == "general,it"
+    assert client._determine_categories("ArXiv physics quantum theorem paper") == "general,science"
+
+
+def test_searxng_client_merges_and_deduplicates_multi_engine_results() -> None:
+    from app.web.search import SearXNGClient
+
+    client = SearXNGClient()
+    existing = [
+        {
+            "title": "India Education Ministry",
+            "url": "https://education.gov.in/",
+            "content": "Ministry of Education official portal.",
+            "engine": "bing",
+            "engines": ["bing"],
+            "score": 1.0,
+        }
+    ]
+    incoming = [
+        {
+            "title": "Ministry of Education - Government of India",
+            "url": "https://education.gov.in",
+            "content": "Updated official details.",
+            "engine": "google news",
+            "engines": ["google news"],
+            "score": 1.5,
+        },
+        {
+            "title": "Wikipedia Minister Profile",
+            "url": "https://en.wikipedia.org/wiki/Ministry_of_Education_(India)",
+            "content": "Wikipedia article on education ministry.",
+            "engine": "wikipedia",
+            "engines": ["wikipedia"],
+            "score": 1.2,
+        },
+    ]
+
+    merged = client._merge_results(existing, incoming)
+
+    assert len(merged) == 2
+    gov_result = next(r for r in merged if "education.gov.in" in r["url"])
+    assert "bing" in gov_result["engines"]
+    assert "google news" in gov_result["engines"]
+    assert gov_result["score"] > 1.0
+
+
+
 
 
 

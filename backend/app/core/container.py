@@ -110,11 +110,18 @@ class ApplicationContainer:
     def monitoring_service(self) -> MonitoringService:
         return self._monitoring_service
 
+    def screenshot_store(self) -> Any:
+        if not hasattr(self, "_screenshot_store"):
+            from app.browser.screenshot_store import ScreenshotStore
+            self._screenshot_store = ScreenshotStore(settings=self.settings)
+        return self._screenshot_store
+
     def browser_service(self) -> BrowserService:
         if not hasattr(self, "_browser_service"):
             self._browser_service = BrowserService(
                 settings=self.settings,
                 monitoring_service=self.monitoring_service(),
+                screenshot_store=self.screenshot_store(),
             )
         return self._browser_service
 

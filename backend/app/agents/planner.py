@@ -13,6 +13,18 @@ logger = get_logger(__name__)
 class PlaceholderPlanner(Planner):
     """Planner that generates step-by-step actions for browser automation and other objectives."""
 
+    COMMON_SITE_REDIRECTS = {
+        "youtube": "https://www.youtube.com",
+        "google": "https://www.google.com",
+        "github": "https://github.com",
+        "wikipedia": "https://www.wikipedia.org",
+        "amazon": "https://www.amazon.com",
+        "netflix": "https://www.netflix.com",
+        "reddit": "https://www.reddit.com",
+        "duckduckgo": "https://duckduckgo.com",
+        "bing": "https://www.bing.com",
+    }
+
     def __init__(self, settings: Settings | None = None, llm_provider: LLMProvider | None = None) -> None:
         self._settings = settings
         self._llm_provider = llm_provider
@@ -39,6 +51,19 @@ class PlaceholderPlanner(Planner):
             scheme, domain_path = domain_match.groups()
             url = f"{scheme or 'https://'}{domain_path}"
             return [f"open:{url}"]
+
+        # Common site name shortcuts (e.g. "open youtube")
+        browser_command_match = re.match(
+            r"^(?:open|goto|go to|navigate to|visit)\s+(?P<target>[a-z0-9-]+)(?:\s+.*)?$",
+            objective_lower,
+        )
+        if browser_command_match:
+            target = browser_command_match.group("target")
+            if target in self.COMMON_SITE_REDIRECTS:
+                return [f"open:{self.COMMON_SITE_REDIRECTS[target]}"]
+
+        if objective_lower in self.COMMON_SITE_REDIRECTS:
+            return [f"open:{self.COMMON_SITE_REDIRECTS[objective_lower]}"]
 
         # Screenshot command
         if any(kw in objective_lower for kw in ("screenshot", "take screenshot", "capture screen")):

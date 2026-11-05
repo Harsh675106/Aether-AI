@@ -58,6 +58,7 @@ export function DesktopLayout() {
         />
       )}
 
+
       <div className="relative z-20 min-h-screen">
         <StatusPanel />
         <MonitorPanel />

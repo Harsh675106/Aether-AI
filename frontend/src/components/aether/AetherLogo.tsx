@@ -1,4 +1,5 @@
 import { motion } from "framer-motion";
+import { Avatar } from "@/components/avatar";
 
 export function AetherLogo() {
   return (
@@ -6,30 +7,10 @@ export function AetherLogo() {
       initial={{ opacity: 0, y: -30, scale: 0.95 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       transition={{ duration: 0.8, ease: "easeOut" }}
-      className="pointer-events-auto absolute  z-50 hidden md:flex items-center "
+      className="pointer-events-auto absolute z-50 hidden md:flex items-center left-4 top-4"
     >
-      <motion.img
-        src="/assets/logo.png"
-        alt="Aether Logo"
-        initial={{ opacity: 0, scale: 0.8 }}
-        animate={{
-          opacity: 1,
-          scale: 1,
-          rotate: 360,
-        }}
-        transition={{
-          opacity: { duration: 0.8 },
-          scale: { duration: 0.8 },
-          rotate: {
-            delay: 0.8, // Start rotating after fade-in
-            duration: 8,
-            ease: "linear",
-            repeat: Infinity,
-          },
-        }}
-        className="h-30 w-40 object-contain select-none"
-        draggable={false}
-      />
+      <Avatar size={90} className="mr-6" />
+
 
       {/* Existing Text */}
       <div className="flex flex-col">

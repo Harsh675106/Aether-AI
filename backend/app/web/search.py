@@ -8,7 +8,7 @@ from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import urlparse, quote_plus
 
 import httpx
 from bs4 import BeautifulSoup
@@ -612,40 +612,132 @@ class WebContentExtractor:
 
 
 class SearXNGClient:
-    """Query a local or remote SearXNG instance."""
+    """Query a local or remote SearXNG instance with multi-engine routing and fallbacks."""
 
     def __init__(self, base_url: str = "http://localhost:8080") -> None:
         self.base_url = base_url.rstrip("/")
 
-    async def search(self, query: str, *, limit: int = 5) -> list[dict[str, Any]]:
-        async with httpx.AsyncClient(timeout=20, headers={"User-Agent": "AetherAI/1.0"}) as client:
-            response = await client.get(
-                f"{self.base_url}/search",
-                params={
-                    "q": query,
-                    "format": "json",
-                    "categories": "general",
-                    "language": "en",
-                },
-            )
-            response.raise_for_status()
-            payload = response.json()
+    def _determine_categories(self, query: str) -> str:
+        q = query.lower()
+        if any(term in q for term in ("news", "today", "latest", "current", "breaking", "minister", "election", "score", "match", "price", "2026", "2025")):
+            return "general,news"
+        if any(term in q for term in ("python", "javascript", "code", "github", "docker", "npm", "pip", "rust", "react", "fastapi")):
+            return "general,it"
+        if any(term in q for term in ("paper", "arxiv", "theorem", "physics", "biology", "chemistry")):
+            return "general,science"
+        return "general,news"
 
-        results: list[dict[str, Any]] = []
-        for item in payload.get("results", [])[: limit * 2]:
-            url = item.get("url", "")
-            if not url:
+    async def search(self, query: str, *, limit: int = 5) -> list[dict[str, Any]]:
+        categories = self._determine_categories(query)
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 AetherAI/2.0",
+            "Accept": "application/json, text/plain, */*",
+            "Accept-Language": "en-US,en;q=0.9",
+        }
+
+        # 1. Primary multi-engine & multi-category search via SearXNG
+        results = await self._query_searxng(query, params={"categories": categories, "language": "en"}, headers=headers)
+        if len(results) >= max(2, limit):
+            return results[: limit * 2]
+
+        # 2. Targeted fallback with explicit engines if initial query had sparse results
+        if len(results) < 2:
+            engine_fallback = "bing,duckduckgo news,wikipedia,wikidata,mojeek,yahoo,reuters,google news,duckduckgo"
+            fallback_results = await self._query_searxng(query, params={"engines": engine_fallback, "language": "en"}, headers=headers)
+            results = self._merge_results(results, fallback_results)
+
+        # 3. Direct Provider Fallback if SearXNG is unavailable or returned 0 results
+        if not results:
+            direct_results = await self._direct_fallback_search(query, limit=limit)
+            results = self._merge_results(results, direct_results)
+
+        return results[: limit * 2]
+
+    async def _query_searxng(self, query: str, *, params: dict[str, str], headers: dict[str, str]) -> list[dict[str, Any]]:
+        try:
+            async with httpx.AsyncClient(timeout=12.0, headers=headers) as client:
+                query_params = {"q": query, "format": "json", **params}
+                response = await client.get(f"{self.base_url}/search", params=query_params)
+                if response.status_code != 200:
+                    return []
+                payload = response.json()
+                raw_results = payload.get("results", [])
+                return self._parse_searxng_results(raw_results)
+        except Exception:
+            return []
+
+    def _parse_searxng_results(self, raw_results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        parsed_results: list[dict[str, Any]] = []
+        for item in raw_results:
+            url = str(item.get("url") or "").strip()
+            if not url or not url.startswith("http"):
                 continue
-            results.append(
-                {
-                    "title": item.get("title", ""),
-                    "url": url,
-                    "content": item.get("content", ""),
-                    "site_name": item.get("engine") or self._site_name(url),
-                    "published_date": item.get("publishedDate") or None,
-                }
-            )
+            engine = str(item.get("engine") or self._site_name(url))
+            parsed_results.append({
+                "title": str(item.get("title") or "").strip(),
+                "url": url,
+                "content": str(item.get("content") or "").strip(),
+                "site_name": engine,
+                "engine": engine,
+                "engines": [engine],
+                "published_date": item.get("publishedDate") or None,
+                "score": float(item.get("score") or 1.0),
+            })
+        return parsed_results
+
+    async def _direct_fallback_search(self, query: str, *, limit: int = 5) -> list[dict[str, Any]]:
+        results: list[dict[str, Any]] = []
+        try:
+            async with httpx.AsyncClient(timeout=6.0, headers={"User-Agent": "AetherAI/2.0"}) as client:
+                wiki_url = f"https://en.wikipedia.org/w/api.php?action=opensearch&search={quote_plus(query)}&limit={limit}&namespace=0&format=json"
+                r = await client.get(wiki_url)
+                if r.status_code == 200:
+                    data = r.json()
+                    if len(data) >= 4:
+                        titles, descriptions, urls = data[1], data[2], data[3]
+                        for title, desc, url in zip(titles, descriptions, urls):
+                            if url:
+                                results.append({
+                                    "title": title,
+                                    "url": url,
+                                    "content": desc or title,
+                                    "site_name": "wikipedia",
+                                    "engine": "wikipedia-direct",
+                                    "engines": ["wikipedia"],
+                                    "published_date": None,
+                                    "score": 1.5,
+                                })
+        except Exception:
+            pass
         return results
+
+    def _merge_results(self, existing: list[dict[str, Any]], incoming: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        seen: dict[str, dict[str, Any]] = {}
+        for r in existing:
+            canon = self._canonical_url(r["url"])
+            seen[canon] = dict(r)
+
+        for r in incoming:
+            canon = self._canonical_url(r["url"])
+            if canon in seen:
+                current = seen[canon]
+                current_engines = set(current.get("engines", []))
+                for eng in r.get("engines", [r.get("engine", "")]):
+                    if eng:
+                        current_engines.add(eng)
+                current["engines"] = list(current_engines)
+                current["score"] = float(current.get("score", 1.0)) + 1.0
+                if not current.get("content") and r.get("content"):
+                    current["content"] = r["content"]
+            else:
+                seen[canon] = dict(r)
+
+        return list(seen.values())
+
+    def _canonical_url(self, url: str) -> str:
+        p = urlparse(url)
+        path = p.path.rstrip("/") or "/"
+        return f"{p.netloc.lower()}{path}"
 
     def _site_name(self, url: str) -> str:
         parsed = urlparse(url)
@@ -703,9 +795,10 @@ class RankingService:
             combined_text = f"{title} {content} {url}".lower()
             relevance = sum(1 for term in normalized_query if term and term in combined_text)
             authority = self._authority_score(url, title, item.get("site_name", ""))
-            freshness = self._freshness_score(title, content)
+            multi_engine_bonus = min(2.0, max(0.0, (len(item.get("engines", [])) - 1) * 0.75))
+            freshness = self._freshness_score(title, content, item.get("published_date"))
             quality = self._quality_score(title, content)
-            score = relevance * 2.0 + authority + freshness + quality - self._disambiguation_penalty(url, title, content, query)
+            score = relevance * 2.0 + authority + freshness + quality + multi_engine_bonus - self._disambiguation_penalty(url, title, content, query)
             ranked.append(
                 SearchResult(
                     title=title,
@@ -754,13 +847,16 @@ class RankingService:
             return 1.5
         return 0.5
 
-    def _freshness_score(self, title: str, content: str) -> float:
-        text = f"{title} {content}".lower()
+    def _freshness_score(self, title: str, content: str, published_date: str | None = None) -> float:
+        text = f"{title} {content} {published_date or ''}".lower()
+        score = 0.0
         if re.search(r"\b(202[4-9]|20[3-9][0-9])\b", text):
-            return 0.6
+            score += 0.6
         if any(token in text for token in ["today", "now", "latest", "recent", "breaking", "updated", "new"]):
-            return 0.4
-        return 0.0
+            score += 0.4
+        if published_date:
+            score += 0.3
+        return score
 
     def _quality_score(self, title: str, content: str) -> float:
         text = f"{title} {content}".lower()

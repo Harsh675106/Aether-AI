@@ -138,6 +138,17 @@ class IntentClassifier:
         r"\b(show|find|search|display|open)\b.*\b(pictures?|images?|photos?|logos?|wallpapers?|screenshots?|portraits?|posters?|icons?|pics?)\b",
         r"\b(logo|wallpaper|wallpapers|screenshot|screenshots|portrait|portraits|poster|posters|icon|icons)\b",
     )
+    BROWSER_SITE_KEYWORDS = (
+        "youtube",
+        "google",
+        "github",
+        "wikipedia",
+        "amazon",
+        "netflix",
+        "reddit",
+        "duckduckgo",
+        "bing",
+    )
     BROWSER_PATTERNS = (
         r"\b(open|goto|go to|navigate to|visit)\b.*\b(https?://)?([a-zA-Z0-9-]+\.[a-zA-Z]{2,})\b",
         r"\b(launch|start|open|close|restart|shutdown)\b.*\b(browser|chromium|chrome|tab|page)\b",
@@ -168,6 +179,9 @@ class IntentClassifier:
 
         if self._matches_any(normalized, self.BROWSER_PATTERNS) or any(
             t in normalized for t in ("youtube.com", "google.com", "github.com", "wikipedia.org", "yahoo.com", "reddit.com", "netflix.com")
+        ) or (
+            any(normalized.startswith(prefix) for prefix in ("open ", "goto ", "go to ", "navigate to ", "visit "))
+            and any(keyword in normalized for keyword in self.BROWSER_SITE_KEYWORDS)
         ):
             return IntentClassification(
                 IntentCategory.BROWSER_ACTION,

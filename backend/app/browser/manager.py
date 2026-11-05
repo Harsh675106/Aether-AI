@@ -40,17 +40,8 @@ class BrowserManager:
                 if not self._playwright:
                     self._playwright = await async_playwright().start()
 
-                # Launch Chromium (default) with standard robust options
-                self._browser = await self._playwright.chromium.launch(
-                    headless=self._settings.browser_headless,
-                    args=[
-                        "--no-sandbox",
-                        "--disable-setuid-sandbox",
-                        "--disable-dev-shm-usage",
-                        "--disable-gpu",
-                    ],
-                    timeout=self._settings.browser_timeout,
-                )
+                self._browser = await self._launch_browser()
+
                 self._status = "running"
                 logger.info("browser_launched_successfully", status=self._status)
 
@@ -117,11 +108,8 @@ class BrowserManager:
                     if not self._playwright:
                         self._playwright = await async_playwright().start()
 
-                    self._browser = await self._playwright.chromium.launch(
-                        headless=self._settings.browser_headless,
-                        args=["--no-sandbox", "--disable-dev-shm-usage"],
-                        timeout=self._settings.browser_timeout,
-                    )
+                    self._browser = await self._launch_browser()
+
                     self._browser.on("disconnected", self._handle_disconnection)
                     self._status = "running"
                     logger.info("browser_recovered_successfully")
@@ -133,6 +121,50 @@ class BrowserManager:
 
         return self._browser
 
+    async def _launch_browser(self) -> Browser:
+        """Prefer an installed Chrome/Edge channel, falling back to Playwright Chromium."""
+        if not self._playwright:
+            raise BrowserException("Playwright must be initialized before launching a browser.")
+
+        last_error: Exception | None = None
+        for channel in self._browser_channels():
+            launch_options: dict[str, object] = {
+                "headless": self._settings.browser_headless,
+                "args": self._launch_args(),
+                "timeout": self._settings.browser_timeout,
+            }
+            if channel:
+                launch_options["channel"] = channel
+
+            try:
+                browser = await self._playwright.chromium.launch(**launch_options)
+                logger.info("browser_launched", channel=channel or "playwright-chromium")
+                return browser
+            except Exception as exc:
+                last_error = exc
+                if self._settings.browser_channel != "auto":
+                    raise
+                logger.warning("browser_channel_unavailable", channel=channel or "playwright-chromium", error=str(exc))
+
+        raise BrowserException(f"No supported browser could be launched: {last_error}")
+
+    def _browser_channels(self) -> tuple[str | None, ...]:
+        channel = self._settings.browser_channel
+        if channel == "auto":
+            return ("chrome", "msedge", None)
+        return (None,) if channel == "chromium" else (channel,)
+    def _launch_args(self) -> list[str]:
+        """Return shared Chromium launch arguments for normal starts and recovery."""
+        args = [
+            "--no-sandbox",
+            "--disable-setuid-sandbox",
+            "--disable-dev-shm-usage",
+            "--disable-gpu",
+        ]
+        if not self._settings.browser_headless:
+            # A visible Playwright window otherwise defaults to a small viewport.
+            args.append("--start-maximized")
+        return args
     def _handle_disconnection(self, _: Any) -> None:
         """Internal callback when Playwright fires a disconnected event."""
         if self._status != "closed" and self._status != "recovering":

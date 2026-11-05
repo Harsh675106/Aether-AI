@@ -55,6 +55,9 @@ class Settings(BaseSettings):
     llm_timeout: int = Field(default=120, alias="AETHER_LLM_TIMEOUT")
 
     browser_headless: bool = Field(default=True, alias="AETHER_BROWSER_HEADLESS")
+    browser_channel: Literal["auto", "chrome", "msedge", "chromium"] = Field(
+        default="auto", alias="AETHER_BROWSER_CHANNEL"
+    )
     browser_timeout: int = Field(default=30000, alias="AETHER_BROWSER_TIMEOUT")
     browser_download_dir: str = Field(
         default=str(BACKEND_DIR / "data" / "downloads"), alias="AETHER_BROWSER_DOWNLOAD_DIR"

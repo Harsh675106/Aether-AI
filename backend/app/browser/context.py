@@ -48,15 +48,19 @@ class BrowserContextManager:
             state_path = self.get_profile_path(profile_name)
             storage_state = str(state_path) if state_path.exists() else None
 
-            # Create context with configured user-agent and viewport
-            context_kwargs = {
+            # Visible Chromium should use the maximized native window. Headless runs
+            # retain a deterministic viewport for automation and screenshots.
+            context_kwargs: dict[str, object] = {
                 "user_agent": self._settings.browser_user_agent,
-                "viewport": {
-                    "width": self._settings.browser_viewport_width,
-                    "height": self._settings.browser_viewport_height,
-                },
                 "accept_downloads": True,
             }
+            if self._settings.browser_headless:
+                context_kwargs["viewport"] = {
+                    "width": self._settings.browser_viewport_width,
+                    "height": self._settings.browser_viewport_height,
+                }
+            else:
+                context_kwargs["no_viewport"] = True
             if storage_state:
                 context_kwargs["storage_state"] = storage_state
                 logger.info("loading_context_from_storage_state", path=storage_state)

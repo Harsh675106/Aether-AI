@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import asyncio
 import re
@@ -29,22 +29,51 @@ class SearXNGImageSearchProvider:
         self.base_url = base_url.rstrip("/")
 
     async def search(self, query: str, *, limit: int = 12) -> list[dict[str, Any]]:
-        async with httpx.AsyncClient(timeout=20, headers={"User-Agent": "AetherAI/1.0"}) as client:
-            response = await client.get(
-                f"{self.base_url}/search",
-                params={
-                    "q": query,
-                    "format": "json",
-                    "categories": "images",
-                    "language": "en",
-                    "safesearch": 1,
-                },
-            )
-            response.raise_for_status()
-            payload = response.json()
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 AetherAI/2.0",
+            "Accept": "application/json, text/plain, */*",
+        }
+        raw_items: list[dict[str, Any]] = []
+
+        # 1. Primary image search via SearXNG images category
+        try:
+            async with httpx.AsyncClient(timeout=12, headers=headers) as client:
+                response = await client.get(
+                    f"{self.base_url}/search",
+                    params={
+                        "q": query,
+                        "format": "json",
+                        "categories": "images",
+                        "language": "en",
+                        "safesearch": 1,
+                    },
+                )
+                if response.status_code == 200:
+                    raw_items = response.json().get("results", [])
+        except Exception:
+            raw_items = []
+
+        # 2. Targeted fallback on explicit image engines if empty
+        if not raw_items:
+            try:
+                async with httpx.AsyncClient(timeout=10, headers=headers) as client:
+                    response = await client.get(
+                        f"{self.base_url}/search",
+                        params={
+                            "q": query,
+                            "format": "json",
+                            "engines": "bing images,duckduckgo images,wikicommons",
+                            "language": "en",
+                            "safesearch": 1,
+                        },
+                    )
+                    if response.status_code == 200:
+                        raw_items = response.json().get("results", [])
+            except Exception:
+                pass
 
         results: list[dict[str, Any]] = []
-        for item in payload.get("results", [])[: limit * 2]:
+        for item in raw_items[: limit * 2]:
             image_url = self._first_non_empty(
                 item.get("img_src"),
                 item.get("img"),

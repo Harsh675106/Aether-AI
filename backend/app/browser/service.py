@@ -23,7 +23,12 @@ class BrowserService:
     Coordinates browser lifecycle, tabs, navigation, cookies, screenshots, downloads, and storage.
     """
 
-    def __init__(self, settings: Settings, monitoring_service: MonitoringService | None = None) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        monitoring_service: MonitoringService | None = None,
+        screenshot_store: Any = None,
+    ) -> None:
         self.settings = settings
         self.monitoring_service = monitoring_service
 
@@ -33,7 +38,7 @@ class BrowserService:
         self.tab_manager = TabManager(self.context_manager)
         self.navigation_manager = NavigationManager(settings, self.tab_manager)
         self.state_manager = BrowserStateManager(self.browser_manager, self.tab_manager)
-        self.screenshot_service = ScreenshotService(settings, self.tab_manager)
+        self.screenshot_service = ScreenshotService(settings, self.tab_manager, store=screenshot_store)
         self.download_manager = DownloadManager(settings)
         self.storage_manager = StorageManager(self.context_manager, self.tab_manager)
 
