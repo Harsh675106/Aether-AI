@@ -148,6 +148,20 @@ class IntentClassifier:
         "reddit",
         "duckduckgo",
         "bing",
+        "twitter",
+        "instagram",
+        "linkedin",
+        "stackoverflow",
+    )
+    # Window control patterns are handled client-side via Tauri — classify as BROWSER_ACTION
+    # so the orchestrator short-circuits without calling the planner.
+    BROWSER_WINDOW_CONTROL_PATTERNS = (
+        r"\b(minimize|minimise|hide|show|restore|float|detach|maximize|maximise|expand|close|pin|unpin)\b.*\bbrowser\b",
+        r"\bbrowser\b.*\b(minimize|minimise|hide|show|restore|float|detach|maximize|maximise|expand|close)\b",
+        r"\b(move|snap|center|position)\b.*\bbrowser\b",
+        r"\bbrowser\b.*\b(always on top|on top)\b",
+        r"\bkeep browser\b",
+        r"^open browser$",
     )
     BROWSER_PATTERNS = (
         r"\b(open|goto|go to|navigate to|visit)\b.*\b(https?://)?([a-zA-Z0-9-]+\.[a-zA-Z]{2,})\b",
@@ -157,6 +171,7 @@ class IntentClassifier:
         r"\b(click|press|type|input|fill|select)\b.*\b(button|input|selector|field|form|text)\b",
         r"\b(go back|navigate back|go forward|reload page|refresh page)\b",
         r"^(https?://)?([a-zA-Z0-9-]+\.[a-zA-Z]{2,})(/.*)?$",
+        r"\b(search|look up|find)\b.*(on the web|online|internet)\b",
     )
 
 
@@ -177,10 +192,21 @@ class IntentClassifier:
         if self._matches_any(normalized, self.IDENTITY_PATTERNS):
             return IntentClassification(IntentCategory.IDENTITY_QUESTION, 98, False, False, "assistant identity question")
 
+        # Browser window management commands (minimize, float, snap, always-on-top, etc.)
+        # These are handled client-side via Tauri — the backend just confirms the intent.
+        if self._matches_any(normalized, self.BROWSER_WINDOW_CONTROL_PATTERNS):
+            return IntentClassification(
+                IntentCategory.BROWSER_ACTION,
+                99,
+                False,
+                False,
+                "browser window management command (handled client-side)"
+            )
+
         if self._matches_any(normalized, self.BROWSER_PATTERNS) or any(
-            t in normalized for t in ("youtube.com", "google.com", "github.com", "wikipedia.org", "yahoo.com", "reddit.com", "netflix.com")
+            t in normalized for t in ("youtube.com", "google.com", "github.com", "wikipedia.org", "yahoo.com", "reddit.com", "netflix.com", "twitter.com", "x.com")
         ) or (
-            any(normalized.startswith(prefix) for prefix in ("open ", "goto ", "go to ", "navigate to ", "visit "))
+            any(normalized.startswith(prefix) for prefix in ("open ", "goto ", "go to ", "navigate to ", "visit ", "browse "))
             and any(keyword in normalized for keyword in self.BROWSER_SITE_KEYWORDS)
         ):
             return IntentClassification(

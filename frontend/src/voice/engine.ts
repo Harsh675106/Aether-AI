@@ -1,4 +1,4 @@
-﻿import { browserSpeechRecognitionProvider, browserSpeechSynthesisProvider } from "./providers";
+import { browserSpeechRecognitionProvider, browserSpeechSynthesisProvider } from "./providers";
 import { publishVoiceMonitoringEvent } from "./monitoring";
 import { formatMarkdownForSpeech } from "./formatter";
 import type { VoiceEngineOptions, VoiceState } from "./types";
@@ -276,7 +276,7 @@ export class AetherVoiceEngine {
     const sessionGeneration = ++this.recognitionGeneration;
     const session = this.speechRecognition.createSession({
       language: this.settings.language,
-      continuous: this.settings.continuousListening,
+      continuous: false,
       interimResults: true,
       maxAlternatives: 1,
       onStart: () => {
@@ -301,6 +301,16 @@ export class AetherVoiceEngine {
         }
 
         this.recognitionSession = null;
+
+        // If the user spoke a command and the speech session ended before the debounce timer,
+        // execute the command immediately!
+        if (this.state.transcript && this.state.transcript.trim()) {
+          const pendingCommand = this.state.transcript.trim();
+          this.clearSilenceTimer();
+          void this.handleSpokenCommand(pendingCommand);
+          return;
+        }
+
         if (this.settings.autoRestart) {
           this.scheduleRestartListening();
         }
@@ -403,28 +413,18 @@ export class AetherVoiceEngine {
     this.updateState({ transcript: normalizedTranscript });
     this.clearSilenceTimer();
 
-    if (!this.state.active) {
-      this.updateState({
-        phase: "listening",
-        active: true,
-        listening: true,
-      });
-      this.publishEvent("voice_recording_started", "Recording Command Started", "Capturing speech input.", "info", "running", {
-        transcript: normalizedTranscript,
-        session_id: this.sessionId,
-        conversation_id: this.conversationId,
-      });
+    this.updateState({
+      transcript: normalizedTranscript,
+      phase: "listening",
+      active: true,
+      listening: true,
+    });
 
-      if (isFinal) {
-        this.publishEvent("voice_speech_recognized", "Speech Recognized", `Recognized speech: "${normalizedTranscript}"`, "info", "running", {
-          transcript: normalizedTranscript,
-          session_id: this.sessionId,
-          conversation_id: this.conversationId,
-        });
-        await this.handleSpokenCommand(normalizedTranscript);
-      }
-      return;
-    }
+    this.publishEvent("voice_recording_started", "Recording Command Started", "Capturing speech input.", "info", "running", {
+      transcript: normalizedTranscript,
+      session_id: this.sessionId,
+      conversation_id: this.conversationId,
+    });
 
     if (isFinal) {
       this.publishEvent("voice_speech_recognized", "Speech Recognized", `Recognized speech: "${normalizedTranscript}"`, "info", "running", {
@@ -437,27 +437,30 @@ export class AetherVoiceEngine {
     }
 
     // Debounce end-of-speech detection for continuous speech pauses
-    if (this.state.active) {
-      this.silenceTimer = window.setTimeout(() => {
-        this.silenceTimer = null;
-        if (this.running && this.state.active && this.state.transcript) {
-          const currentTranscript = this.state.transcript;
-          this.publishEvent("voice_speech_recognized", "Speech Recognized", `Recognized speech: "${currentTranscript}"`, "info", "running", {
-            transcript: currentTranscript,
-            session_id: this.sessionId,
-            conversation_id: this.conversationId,
-          });
-          void this.handleSpokenCommand(currentTranscript);
-        }
-      }, this.settings.silenceTimeoutMs);
-    }
+    this.silenceTimer = window.setTimeout(() => {
+      this.silenceTimer = null;
+      if (this.running && this.state.transcript) {
+        const currentTranscript = this.state.transcript;
+        this.publishEvent("voice_speech_recognized", "Speech Recognized", `Recognized speech: "${currentTranscript}"`, "info", "running", {
+          transcript: currentTranscript,
+          session_id: this.sessionId,
+          conversation_id: this.conversationId,
+        });
+        void this.handleSpokenCommand(currentTranscript);
+      }
+    }, Math.min(this.settings.silenceTimeoutMs, 1000));
   }
 
   private async handleSpokenCommand(transcript: string): Promise<void> {
-    const cleanedTranscript = normalizeTranscript(transcript);
-    if (!cleanedTranscript) {
+    const rawTranscript = normalizeTranscript(transcript);
+    if (!rawTranscript) {
       return;
     }
+
+    // Strip optional wake word prefix (e.g. "Aether, open youtube" or "Hey Aether, open google" -> "open youtube")
+    const cleanedTranscript = rawTranscript
+      .replace(/^(?:hey\s+)?aether[,:\s]*/i, "")
+      .trim() || rawTranscript;
 
     if (isStopPhrase(cleanedTranscript)) {
       await this.stop();

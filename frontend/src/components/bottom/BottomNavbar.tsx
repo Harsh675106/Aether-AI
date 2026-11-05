@@ -1,8 +1,9 @@
 import { motion } from "framer-motion";
-import { FolderOpen, Images } from "lucide-react";
+import { FolderOpen, Globe, Images } from "lucide-react";
 
 import { useImageSearch } from "@/components/image-search";
 import { useFiles } from "@/components/files";
+import { useBrowserStore } from "@/stores/browserStore";
 
 const navItems = [
   "Logs",
@@ -18,6 +19,15 @@ const navItems = [
 export function BottomNavbar() {
   const { openHistory, history } = useImageSearch();
   const { openFiles, screenshots } = useFiles();
+  const { state: browserState, openBrowser, toggleBrowser } = useBrowserStore();
+
+  const handleBrowserClick = () => {
+    if (browserState.isOpen) {
+      void toggleBrowser();
+    } else {
+      void openBrowser("https://www.google.com");
+    }
+  };
 
   return (
     <>
@@ -48,6 +58,7 @@ export function BottomNavbar() {
         </div>
 
         <div className="relative flex flex-wrap items-center justify-center gap-6 text-[11px] uppercase tracking-[0.28em] text-slate-200">
+          {/* Images History Button */}
           <button
             type="button"
             onClick={() => void openHistory()}
@@ -58,6 +69,45 @@ export function BottomNavbar() {
             <Images className="h-4 w-4 text-cyan-300" />
             Images{history.length ? ` (${history.length})` : ""}
             <span className="pointer-events-none absolute inset-x-0 bottom-0 h-0.5 scale-x-0 rounded-full bg-gradient-to-r from-white via-cyan-300 to-blue-500 opacity-0 transition duration-300 ease-in-out group-hover:scale-x-100 group-hover:opacity-90" />
+          </button>
+
+          {/* Browser Button */}
+          <button
+            type="button"
+            onClick={handleBrowserClick}
+            className={`group relative inline-flex items-center gap-2 rounded-full border px-3.5 py-2 text-[11px] font-semibold uppercase tracking-[0.3em] transition duration-300 ease-in-out ${
+              browserState.isOpen && browserState.isVisible
+                ? "border-sky-400/60 bg-sky-500/20 text-sky-200 shadow-[0_0_20px_rgba(56,189,248,0.35)]"
+                : browserState.isOpen && !browserState.isVisible
+                ? "border-indigo-400/40 bg-indigo-500/15 text-indigo-200 hover:border-indigo-400/60 hover:bg-indigo-500/25"
+                : "border-sky-400/30 bg-sky-950/20 text-sky-200 hover:border-sky-400/60 hover:bg-sky-950/40 hover:text-white hover:shadow-[0_0_20px_rgba(56,189,248,0.35)]"
+            }`}
+            aria-label="Open browser window"
+            title={
+              browserState.isOpen && browserState.isVisible
+                ? "Hide floating browser"
+                : browserState.isOpen
+                ? "Show floating browser"
+                : "Open floating browser"
+            }
+          >
+            <Globe
+              className={`h-4 w-4 ${
+                browserState.isOpen && browserState.isVisible
+                  ? "text-sky-300"
+                  : browserState.isOpen
+                  ? "text-indigo-300"
+                  : "text-sky-400"
+              }`}
+            />
+            Browser{browserState.isOpen && !browserState.isVisible ? " (hidden)" : ""}
+            {browserState.isOpen && browserState.isVisible && (
+              <span className="relative flex h-2 w-2">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-sky-400 opacity-75" />
+                <span className="relative inline-flex h-2 w-2 rounded-full bg-sky-500" />
+              </span>
+            )}
+            <span className="pointer-events-none absolute inset-x-0 bottom-0 h-0.5 scale-x-0 rounded-full bg-gradient-to-r from-cyan-400 via-sky-300 to-blue-500 opacity-0 transition duration-300 ease-in-out group-hover:scale-x-100 group-hover:opacity-100" />
           </button>
 
           {navItems.map((item) => {

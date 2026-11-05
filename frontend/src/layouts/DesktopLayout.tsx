@@ -5,6 +5,7 @@ import { ChatPanelAether } from "@/components/chat/ChatPanelAether";
 import { StatusPanel } from "@/components/status/StatusPanel";
 import { BottomNavbar } from "@/components/bottom/BottomNavbar";
 import { MonitorPanel } from "@/components/monitor/MonitorPanel";
+import { BrowserLauncher, BrowserWindow } from "@/components/browser";
 
 const DISPLAY_VIDEO_URL = "/assets/DisplayVideo.mp4";
 
@@ -65,6 +66,9 @@ export function DesktopLayout() {
         <ChatPanelAether />
         <main className="mx-auto flex min-h-screen max-w-7xl flex-col px-4 py-6 sm:px-6 lg:px-8">
         </main>
+        {/* Floating Browser Window & Launcher */}
+        <BrowserWindow />
+        <BrowserLauncher />
         <BottomNavbar />
       </div>
 

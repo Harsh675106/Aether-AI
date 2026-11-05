@@ -245,12 +245,15 @@ class ConversationOrchestrator:
                     friendly_action = action.replace("_", " ").title()
                     if action == "open":
                         friendly_update = f"Navigating to {target}...\n"
+                        metadata.details["browser_url"] = target
                     elif action == "screenshot":
                         friendly_update = f"Capturing screenshot ({target} view)...\n"
                     elif action == "click":
                         friendly_update = f"Clicking element: {target}...\n"
                     elif action == "type":
                         friendly_update = f"Typing into element...\n"
+                    elif action == "scroll":
+                        friendly_update = f"Scrolling {target or 'down'}...\n"
                     else:
                         friendly_update = f"Running browser operation: {friendly_action}...\n"
 
@@ -259,9 +262,11 @@ class ConversationOrchestrator:
 
                     try:
                         tool_name = f"browser_{action}"
-                        tool_args = {"url": target, "selector": target, "text": target}
+                        tool_args = {"url": target, "selector": target, "text": target, "target": target}
                         if action == "screenshot":
                             tool_args["full_page"] = (target == "full")
+                        elif action == "scroll":
+                            tool_args["direction"] = target or "down"
                         elif action == "type" and "|" in target:
                             sel, val = target.split("|", 1)
                             tool_args["selector"] = sel

@@ -7,11 +7,13 @@ describe("AetherVoiceEngine", () => {
 
     Object.defineProperty(window, "SpeechRecognition", {
       writable: true,
-      value: vi.fn().mockImplementation(() => ({
-        start: vi.fn(),
-        stop: vi.fn(),
-        abort: vi.fn(),
-      })),
+      value: vi.fn().mockImplementation(function (this: any) {
+        return {
+          start: vi.fn(),
+          stop: vi.fn(),
+          abort: vi.fn(),
+        };
+      }),
     });
 
     Object.defineProperty(window, "speechSynthesis", {
@@ -35,7 +37,7 @@ describe("AetherVoiceEngine", () => {
     const createdRecognitions: Array<any> = [];
     Object.defineProperty(window, "SpeechRecognition", {
       writable: true,
-      value: vi.fn().mockImplementation(() => {
+      value: vi.fn().mockImplementation(function (this: any) {
         const recognition = {
           start: vi.fn(),
           stop: vi.fn(),

@@ -165,6 +165,10 @@ class BrowserManager:
             # A visible Playwright window otherwise defaults to a small viewport.
             args.append("--start-maximized")
         return args
+    def is_running(self) -> bool:
+        """Returns True if the browser process is currently connected and running."""
+        return self._browser is not None and self._browser.is_connected() and self._status == "running"
+
     def _handle_disconnection(self, _: Any) -> None:
         """Internal callback when Playwright fires a disconnected event."""
         if self._status != "closed" and self._status != "recovering":

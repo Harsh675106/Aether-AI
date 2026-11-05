@@ -85,6 +85,40 @@ function getASTTextContent(node: any): string {
 
 const CalloutContext = React.createContext<boolean>(false);
 
+function ParagraphRenderer({ children, node }: any) {
+  const isInsideCallout = React.useContext(CalloutContext);
+  const textContent = getASTTextContent(node);
+  const callout = !isInsideCallout ? getCalloutType(textContent) : null;
+
+  if (callout) {
+    const { config, title, type } = callout;
+    const cleanChildren = stripCalloutPrefixFromReactNode(children, type);
+    return (
+      <CalloutBlock title={title} config={config}>
+        <CalloutContext.Provider value={true}>
+          <p className={`text-sm leading-7 ${config.text}`}>{cleanChildren}</p>
+        </CalloutContext.Provider>
+      </CalloutBlock>
+    );
+  }
+
+  return (
+    <AnimatedBlock>
+      <p
+        className="
+    my-4
+    text-[15.5px]
+    leading-8
+    text-slate-200/95
+    [text-wrap:pretty]
+  "
+      >
+        {children}
+      </p>
+    </AnimatedBlock>
+  );
+}
+
 export function MarkdownMessage({ content }: MarkdownMessageProps) {
   const preparedContent = useMemo(() => prepareContentForMarkdown(content), [content]);
 
@@ -122,39 +156,7 @@ export function MarkdownMessage({ content }: MarkdownMessageProps) {
         return <CodeBlock className={className}>{children}</CodeBlock>;
       },
 
-      p: ({ children, node }: any) => {
-        const isInsideCallout = React.useContext(CalloutContext);
-        const textContent = getASTTextContent(node);
-        const callout = !isInsideCallout ? getCalloutType(textContent) : null;
-
-        if (callout) {
-          const { config, title, type } = callout;
-          const cleanChildren = stripCalloutPrefixFromReactNode(children, type);
-          return (
-            <CalloutBlock title={title} config={config}>
-              <CalloutContext.Provider value={true}>
-                <p className={`text-sm leading-7 ${config.text}`}>{cleanChildren}</p>
-              </CalloutContext.Provider>
-            </CalloutBlock>
-          );
-        }
-
-        return (
-          <AnimatedBlock>
-            <p
-              className="
-    my-4
-    text-[15.5px]
-    leading-8
-    text-slate-200/95
-    [text-wrap:pretty]
-  "
-            >
-              {children}
-            </p>
-          </AnimatedBlock>
-        );
-      },
+      p: ParagraphRenderer,
 
       ul: ({ children }: any) => (
         <AnimatedBlock>

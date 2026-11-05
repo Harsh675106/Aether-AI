@@ -70,14 +70,24 @@ class PlaceholderPlanner(Planner):
             full_page = "full" in objective_lower
             return [f"screenshot:{'full' if full_page else 'viewport'}"]
 
-        # Basic navigation state commands
+        # Basic window and navigation state commands
+        if any(kw in objective_lower for kw in ("scroll down", "page down")):
+            return ["scroll:down"]
+        if any(kw in objective_lower for kw in ("scroll up", "page up")):
+            return ["scroll:up"]
+        if any(kw in objective_lower for kw in ("minimize browser", "hide browser", "minimize")):
+            return ["minimize"]
+        if any(kw in objective_lower for kw in ("restore browser", "show browser", "bring back browser")):
+            return ["restore"]
+        if any(kw in objective_lower for kw in ("maximize browser", "expand browser")):
+            return ["maximize"]
         if any(kw in objective_lower for kw in ("go back", "navigate back", "back page")):
             return ["back"]
         if any(kw in objective_lower for kw in ("go forward", "forward page")):
             return ["forward"]
         if any(kw in objective_lower for kw in ("reload page", "refresh page", "reload", "refresh")):
             return ["reload"]
-        if any(kw in objective_lower for kw in ("close tab", "close page")):
+        if any(kw in objective_lower for kw in ("close tab", "close page", "close browser")):
             return ["close_tab"]
 
         # 2. LLM-Based Planning for Complex Actions (if provider is injected)
