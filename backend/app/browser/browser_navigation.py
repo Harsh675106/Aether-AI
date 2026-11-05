@@ -42,8 +42,10 @@ class BrowserNavigation:
         # Shortcut names
         site_shortcuts = {
             "youtube": "https://www.youtube.com",
+            "youtube.com": "https://www.youtube.com",
             "google": "https://www.google.com",
             "github": "https://www.github.com",
+            "github.com": "https://www.github.com",
             "wikipedia": "https://www.wikipedia.org",
             "reddit": "https://www.reddit.com",
             "twitter": "https://twitter.com",
@@ -67,7 +69,7 @@ class BrowserNavigation:
     async def navigate(self, url_or_query: str) -> str:
         """Navigates the floating browser directly to the requested URL."""
         target_url = self.normalize_url(url_or_query)
-        logger.info("central_browser_navigating", target=target_url)
+        logger.info("[BROWSER_MANAGER] Operation: Navigate", target=target_url, execution_target="Embedded Chromium", external_browser_launch="DISABLED")
 
         # 1. If CDP connected to the floating browser, navigate the active page
         page = await self.session.get_page()
@@ -76,10 +78,9 @@ class BrowserNavigation:
                 await page.goto(target_url, wait_until="domcontentloaded", timeout=15000)
                 self.session.update_url(page.url, await page.title())
             except Exception as exc:
-                logger.warning("cdp_navigation_note", error=str(exc))
-                self.session.update_url(target_url)
+                raise RuntimeError(f"Embedded Chromium navigation failed: {exc}") from exc
         else:
-            self.session.update_url(target_url)
+            raise RuntimeError("Aether Floating Browser is unavailable; external browser launch is disabled.")
 
         # 2. Update controller state and history
         if self.controller:
@@ -105,11 +106,9 @@ class BrowserNavigation:
                 await page.go_back(wait_until="domcontentloaded", timeout=10000)
                 self.session.update_url(page.url, await page.title())
                 return
-            except Exception:
-                pass
-        if self.controller:
-            from app.browser.models import BrowserActionRequest
-            await self.controller.handle_action(BrowserActionRequest(action="navigate", url=""))
+            except Exception as exc:
+                raise RuntimeError(f"Embedded Chromium back navigation failed: {exc}") from exc
+        raise RuntimeError("Aether Floating Browser is unavailable; external browser launch is disabled.")
 
     async def go_forward(self) -> None:
         """Navigates forward in history."""
@@ -119,8 +118,9 @@ class BrowserNavigation:
                 await page.go_forward(wait_until="domcontentloaded", timeout=10000)
                 self.session.update_url(page.url, await page.title())
                 return
-            except Exception:
-                pass
+            except Exception as exc:
+                raise RuntimeError(f"Embedded Chromium forward navigation failed: {exc}") from exc
+        raise RuntimeError("Aether Floating Browser is unavailable; external browser launch is disabled.")
 
     async def refresh(self) -> None:
         """Reloads the active page."""
@@ -130,6 +130,7 @@ class BrowserNavigation:
                 await page.reload(wait_until="domcontentloaded", timeout=10000)
                 self.session.update_url(page.url, await page.title())
                 return
-            except Exception:
-                pass
+            except Exception as exc:
+                raise RuntimeError(f"Embedded Chromium reload failed: {exc}") from exc
+        raise RuntimeError("Aether Floating Browser is unavailable; external browser launch is disabled.")
 

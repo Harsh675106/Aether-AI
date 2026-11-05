@@ -26,12 +26,11 @@ class BrowserAutomation:
 
     async def execute_javascript(self, script: str) -> Any:
         """Executes JavaScript safely in the context of the active floating webpage."""
-        logger.debug("executing_browser_javascript", script_length=len(script))
+        logger.info("[BROWSER_MANAGER] Operation: JavaScript", execution_target="Embedded Chromium", external_browser_launch="DISABLED")
         page = await self.session.get_page()
         if page and not page.is_closed():
             return await page.evaluate(script)
-        logger.warning("no_active_page_for_javascript_execution")
-        return None
+        raise RuntimeError("Aether Floating Browser is unavailable; external browser launch is disabled.")
 
     async def scroll(self, direction: str = "down", amount: int = 500) -> None:
         """Scrolls the active webpage in the specified direction ('up', 'down', 'top', 'bottom')."""
@@ -74,7 +73,7 @@ class BrowserAutomation:
                 return await page.content()
             except Exception as exc:
                 logger.warning("failed_to_extract_page_content", error=str(exc))
-        return ""
+        raise RuntimeError("Aether Floating Browser is unavailable; external browser launch is disabled.")
 
     async def capture_screenshot(
         self,
@@ -113,13 +112,9 @@ class BrowserAutomation:
                 logger.error("screenshot_capture_failed", error=str(exc))
                 raise
 
-        # Fallback dummy 1x1 png if browser not attached via CDP
-        try:
-            import base64
-            # 1x1 transparent png
-            dummy_png = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=")
-            filepath.write_bytes(dummy_png)
-            return str(filepath)
-        except Exception:
-            return str(filepath)
+        logger.error("[BROWSER_MANAGER] Screenshot refused: embedded Chromium unavailable", external_browser_launch="DISABLED")
+        raise RuntimeError(
+            "Aether Floating Browser is unavailable for screenshot capture; "
+            "external browser automation is disabled."
+        )
 

@@ -21,6 +21,7 @@ export type SpeechRecognitionSession = {
 
 export interface SpeechToTextProvider {
   isSupported(): boolean;
+  requestMicrophoneAccess?(): Promise<void>;
   createSession(options: SpeechRecognitionSessionOptions): SpeechRecognitionSession | null;
 }
 
@@ -112,6 +113,32 @@ export class RegexWakeWordDetector {
 class BrowserSpeechRecognitionProvider implements SpeechToTextProvider {
   isSupported(): boolean {
     return typeof window !== "undefined" && Boolean(window.SpeechRecognition || window.webkitSpeechRecognition);
+  }
+
+  async requestMicrophoneAccess(): Promise<void> {
+    // SpeechRecognition implementations do not consistently show a permission
+    // prompt themselves (notably in embedded Chromium webviews). Ask for the
+    // microphone from the user-initiated button click, then release it; the
+    // recognition session opens its own capture stream immediately afterwards.
+    if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+      return;
+    }
+
+    let stream: MediaStream | null = null;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (error) {
+      const name = error instanceof DOMException ? error.name : "";
+      if (name === "NotAllowedError" || name === "SecurityError") {
+        throw new Error("Microphone access is blocked. Allow microphone access for Aether in your browser and Windows privacy settings, then try again.");
+      }
+      if (name === "NotFoundError") {
+        throw new Error("No microphone was found. Connect or enable a microphone, then try again.");
+      }
+      throw new Error("Unable to access the microphone. Check that it is not being used exclusively by another application.");
+    } finally {
+      stream?.getTracks().forEach((track) => track.stop());
+    }
   }
 
   createSession(options: SpeechRecognitionSessionOptions): SpeechRecognitionSession | null {

@@ -247,7 +247,7 @@ export function ChatPanelAether() {
                         </span>
                         {voiceState.transcript && (
                           <span className="truncate text-[11px] text-slate-300 italic">
-                            "{voiceState.transcript}"
+                            {`"${voiceState.transcript}"`}
                           </span>
                         )}
                       </div>

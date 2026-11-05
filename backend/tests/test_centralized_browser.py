@@ -14,12 +14,42 @@ Verifies all 11 acceptance criteria:
 11. Tool manager and Planner integration.
 """
 import pytest
+from pathlib import Path
+from unittest.mock import AsyncMock
 from app.browser.browser_manager import BrowserManager
 from app.browser.browser_registry import get_global_browser_manager
 from app.browser.models import BrowserLayoutMode, SnapPosition
 from app.core.settings import Settings
 from app.tools.manager import PlaceholderToolManager
 from app.agents.planner import PlaceholderPlanner
+
+
+class EmbeddedPage:
+    """A test double for the page already rendered by Aether's WebView2."""
+
+    def __init__(self) -> None:
+        self.url = "https://www.google.com"
+
+    def is_closed(self) -> bool:
+        return False
+
+    async def goto(self, url: str, **_: object) -> None:
+        self.url = url
+
+    async def title(self) -> str:
+        return "Aether embedded page"
+
+    async def screenshot(self, path: str, **_: object) -> None:
+        Path(path).write_bytes(b"embedded-webview-screenshot")
+
+    async def click(self, *_: object, **__: object) -> None:
+        return None
+
+    async def type(self, *_: object, **__: object) -> None:
+        return None
+
+    async def evaluate(self, *_: object, **__: object) -> str:
+        return ""
 
 
 @pytest.fixture
@@ -35,6 +65,8 @@ def browser_manager(settings):
     # Reset singleton
     BrowserManager._instance = None
     manager = BrowserManager.get_instance(settings)
+    page = EmbeddedPage()
+    manager.session.get_page = AsyncMock(return_value=page)
     return manager
 
 
@@ -145,6 +177,11 @@ async def test_no_external_chrome_process(browser_manager):
     """Criterion 9: Manager connects via CDP/embedded session; does not spawn independent Chrome."""
     assert browser_manager.session.cdp_url == "http://127.0.0.1:9222"
     assert browser_manager.session._browser is None or browser_manager.session._is_cdp_connected
+    # The old standalone-launch implementation must not return.
+    source = Path(__file__).parents[1] / "app" / "browser"
+    assert "chromium.launch" not in (source / "manager.py").read_text(encoding="utf-8")
+    assert "new_context(" not in (source / "browser_session.py").read_text(encoding="utf-8")
+    assert "new_page(" not in (source / "browser_session.py").read_text(encoding="utf-8")
 
 
 @pytest.mark.asyncio

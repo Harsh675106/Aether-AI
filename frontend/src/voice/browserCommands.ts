@@ -85,6 +85,12 @@ export function parseBrowserVoiceCommand(message: string): BrowserCommand | null
     return { action: 'open', url: normalizeUrl(showWebMatch[1]) };
   }
 
+  // These execute through Tauri against the existing browser-view; they never
+  // enter the backend planner or create an automation browser.
+  if (/^(go\s+back|back)$/.test(msg)) return { action: 'back' };
+  if (/^(go\s+forward|forward)$/.test(msg)) return { action: 'forward' };
+  if (/^(refresh|reload|refresh\s+page|reload\s+page)$/.test(msg)) return { action: 'reload' };
+
   // ── Window Control ────────────────────────────────────────────────────────────
 
   if (/^float\s+browser$|^detach\s+browser$/.test(msg)) {

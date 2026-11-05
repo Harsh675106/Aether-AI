@@ -4,9 +4,8 @@ mod browser;
 use browser::{commands::*, window::BrowserWindowManager};
 
 fn main() {
-    // Enable remote debugging on the embedded Chromium WebView2 instance so that
-    // backend automation and Playwright CDP sessions connect directly to the existing
-    // Aether Floating Browser without launching any external browser processes.
+    // This is an attachment point for the backend to control the existing WebView2
+    // child webview. It must never be used to launch Chrome or create another context.
     std::env::set_var(
         "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS",
         "--remote-debugging-port=9222",

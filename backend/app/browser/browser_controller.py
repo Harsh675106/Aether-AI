@@ -8,7 +8,6 @@ from app.browser.browser_config import BrowserConfig
 from app.browser.browser_events import BrowserEventDispatcher
 from app.browser.browser_state import BrowserSystemState
 from app.browser.models import BrowserActionRequest, BrowserLayoutMode, SnapPosition
-from app.browser.service import BrowserService
 from app.browser.window_manager import WindowManager
 from app.core.settings import Settings
 from app.monitoring.service import MonitoringService
@@ -21,7 +20,7 @@ class BrowserController:
         self,
         settings: Settings,
         monitoring_service: MonitoringService | None = None,
-        browser_service: BrowserService | None = None,
+        browser_service: Any | None = None,
     ) -> None:
         self.settings = settings
         self.config = BrowserConfig.from_settings(settings)
@@ -45,12 +44,9 @@ class BrowserController:
                 "action": action,
             })
 
-            # If Playwright browser service is attached, also load in background session
-            if self.browser_service and self.browser_service.browser_manager.is_running():
-                try:
-                    await self.browser_service.open_url(target_url)
-                except Exception:
-                    pass
+            # Navigation is performed only by BrowserNavigation through the CDP
+            # attachment to the existing embedded webview.  Never start a
+            # background browser or a second Playwright session here.
 
         elif action == "show":
             self.window_manager.state.is_open = True

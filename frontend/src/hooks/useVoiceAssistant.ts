@@ -28,15 +28,28 @@ export function useVoiceAssistant(sendMessage: VoiceChatTransport["sendMessage"]
     });
   }
 
+  // Keep the chat transport up-to-date without re-subscribing on every render.
+  // Using a ref avoids the sendMessage identity instability that caused the
+  // listening session to be torn down and restarted on every render.
+  const sendMessageRef = useRef(sendMessage);
+  useEffect(() => {
+    sendMessageRef.current = sendMessage;
+  });
+
   useEffect(() => {
     const engine = engineRef.current;
     if (!engine) {
       return;
     }
 
-    engine.updateChatTransport({ sendMessage });
+    // Wrap in a stable function so the transport always calls the latest version.
+    engine.updateChatTransport({
+      sendMessage: (content, options) => sendMessageRef.current(content, options),
+    });
+
     return engine.subscribe(setState);
-  }, [sendMessage]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     const engine = engineRef.current;

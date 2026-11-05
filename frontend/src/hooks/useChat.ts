@@ -47,6 +47,18 @@ export function useChat() {
             browserReply = `Opening ${url} in the floating browser.`;
             break;
           }
+          case "back":
+            await browserStore.goBack();
+            browserReply = "Navigating back in the floating browser.";
+            break;
+          case "forward":
+            await browserStore.goForward();
+            browserReply = "Navigating forward in the floating browser.";
+            break;
+          case "reload":
+            await browserStore.reload();
+            browserReply = "Refreshing the floating browser.";
+            break;
           case "show":
             await browserStore.showBrowser();
             browserReply = "Restoring the browser window.";

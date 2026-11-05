@@ -72,30 +72,39 @@ class BrowserSessionManager:
                 )
                 self._is_cdp_connected = True
 
+                # A CDP attachment is observation/control of the *already rendered*
+                # Aether webview.  Creating a context or page here would be a second
+                # automation surface, which is expressly forbidden.
                 contexts = self._browser.contexts
-                if contexts:
-                    self._context = contexts[0]
-                else:
-                    self._context = await self._browser.new_context()
+                pages = [page for context in contexts for page in context.pages if not page.is_closed()]
+                if not pages:
+                    raise RuntimeError("Aether Floating Browser has no active embedded page")
 
-                pages = self._context.pages
-                if pages:
-                    self._page = pages[0]
-                else:
-                    self._page = await self._context.new_page()
+                # WebView2 exposes both Aether's UI and its child browser view over
+                # CDP.  The external page is the authoritative floating browser.
+                self._page = next(
+                    (page for page in pages if not page.url.startswith(("http://localhost", "tauri://", "about:blank"))),
+                    pages[-1],
+                )
+                self._context = self._page.context
 
                 self._current_url = self._page.url
                 self._page_title = await self._page.title()
                 logger.info(
-                    "connected_to_floating_browser_successfully",
+                    "[BROWSER_MANAGER] Active instance: Aether Floating Browser",
                     current_url=self._current_url,
                     title=self._page_title,
+                    execution_target="Embedded Chromium",
+                    external_browser_launch="DISABLED",
                 )
                 return True
 
             except Exception as exc:
                 self._is_cdp_connected = False
-                logger.debug("cdp_connection_not_available_using_controller_bridge", error=str(exc))
+                logger.warning(
+                    "[BROWSER_MANAGER] Embedded Chromium unavailable; external browser launch is DISABLED",
+                    error=str(exc),
+                )
                 return False
 
     def update_url(self, url: str, title: str | None = None) -> None:

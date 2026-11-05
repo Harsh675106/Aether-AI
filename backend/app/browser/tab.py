@@ -38,7 +38,14 @@ class TabManager:
         """Opens a new tab (page) in the context of the given profile."""
         async with self._lock:
             context = await self._context_manager.get_or_create_context(profile_name)
-            page = await context.new_page()
+            pages = [page for page in context.pages if not page.is_closed()]
+            if not pages:
+                raise BrowserException(
+                    "Aether Floating Browser has no active page; creating a new page is disabled."
+                )
+            # Aether has a single rendering surface. Reuse that page rather than
+            # creating a tab or an independent automation target.
+            page = pages[-1]
 
             tab_id = str(uuid.uuid4())
             # Attach custom attribute to playwright Page object

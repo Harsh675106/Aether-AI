@@ -1,7 +1,11 @@
+from typing import TYPE_CHECKING
+
 from app.core.logging import get_logger
-from app.browser.manager import BrowserManager
 from app.browser.tab import TabManager
 from app.browser.schemas import BrowserState
+
+if TYPE_CHECKING:
+    from app.browser.browser_manager import BrowserManager
 
 logger = get_logger(__name__)
 
@@ -9,7 +13,7 @@ logger = get_logger(__name__)
 class BrowserStateManager:
     """Consolidates states from BrowserManager and TabManager to provide a single source of truth BrowserState."""
 
-    def __init__(self, browser_manager: BrowserManager, tab_manager: TabManager) -> None:
+    def __init__(self, browser_manager: "BrowserManager", tab_manager: TabManager) -> None:
         self._browser_manager = browser_manager
         self._tab_manager = tab_manager
 

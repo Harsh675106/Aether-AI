@@ -26,6 +26,9 @@ export interface BrowserCommand {
   action:
     | 'open'
     | 'navigate'
+    | 'back'
+    | 'forward'
+    | 'reload'
     | 'show'
     | 'hide'
     | 'minimize'

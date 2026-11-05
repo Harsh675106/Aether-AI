@@ -169,7 +169,9 @@ export class AetherVoiceEngine {
   }
 
   isSupported(): boolean {
-    return this.speechRecognition.isSupported() && this.speechSynthesis.isSupported();
+    // Recognition is the required part of voice commands. Do not disable it
+    // simply because a browser/webview has no speech-synthesis implementation.
+    return this.speechRecognition.isSupported();
   }
 
   async start(): Promise<void> {
@@ -181,13 +183,22 @@ export class AetherVoiceEngine {
       this.updateState({
         phase: "error",
         supported: false,
-        error: "Speech recognition or synthesis is not supported in this browser.",
+        error: "Speech recognition is not supported in this browser. Use Chrome or Microsoft Edge and allow microphone access.",
         listening: false,
         active: false,
         speaking: false,
       });
-      this.publishEvent("voice_error", "Voice Error", "Speech features are not supported in this environment.", "error", "error", {
+      this.publishEvent("voice_error", "Voice Error", "Speech recognition is not supported in this environment.", "error", "error", {
         reason: "unsupported",
+      });
+      return;
+    }
+
+    try {
+      await this.speechRecognition.requestMicrophoneAccess?.();
+    } catch (error) {
+      await this.handleError(error instanceof Error ? error.message : "Unable to access the microphone.", {
+        reason: "microphone_permission",
       });
       return;
     }
@@ -276,7 +287,7 @@ export class AetherVoiceEngine {
     const sessionGeneration = ++this.recognitionGeneration;
     const session = this.speechRecognition.createSession({
       language: this.settings.language,
-      continuous: false,
+      continuous: true,
       interimResults: true,
       maxAlternatives: 1,
       onStart: () => {

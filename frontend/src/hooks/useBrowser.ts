@@ -22,6 +22,18 @@ export function useBrowser() {
         }
         break;
 
+      case 'back':
+        await store.goBack();
+        break;
+
+      case 'forward':
+        await store.goForward();
+        break;
+
+      case 'reload':
+        await store.reload();
+        break;
+
       case 'show':
         await store.showBrowser();
         break;

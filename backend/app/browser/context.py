@@ -1,12 +1,14 @@
-import os
 import asyncio
 from pathlib import Path
+from typing import TYPE_CHECKING
 from playwright.async_api import BrowserContext, Browser
 
 from app.core.settings import Settings
 from app.core.logging import get_logger
-from app.browser.manager import BrowserManager
 from app.browser.exceptions import BrowserException
+
+if TYPE_CHECKING:
+    from app.browser.browser_manager import BrowserManager
 
 logger = get_logger(__name__)
 
@@ -14,7 +16,7 @@ logger = get_logger(__name__)
 class BrowserContextManager:
     """Manages browser contexts (profiles, cookies, localStorage, sessionStorage)."""
 
-    def __init__(self, settings: Settings, browser_manager: BrowserManager) -> None:
+    def __init__(self, settings: Settings, browser_manager: "BrowserManager") -> None:
         self._settings = settings
         self._browser_manager = browser_manager
         # Track context by profile name
@@ -41,42 +43,18 @@ class BrowserContextManager:
                     logger.warning("tracked_context_stale_discarding", profile=profile_name)
                     self._contexts.pop(profile_name, None)
 
-            # Ensure browser is running
-            browser = await self._browser_manager.check_health_and_recover()
-
-            logger.info("creating_browser_context", profile=profile_name)
-            state_path = self.get_profile_path(profile_name)
-            storage_state = str(state_path) if state_path.exists() else None
-
-            # Visible Chromium should use the maximized native window. Headless runs
-            # retain a deterministic viewport for automation and screenshots.
-            context_kwargs: dict[str, object] = {
-                "user_agent": self._settings.browser_user_agent,
-                "accept_downloads": True,
-            }
-            if self._settings.browser_headless:
-                context_kwargs["viewport"] = {
-                    "width": self._settings.browser_viewport_width,
-                    "height": self._settings.browser_viewport_height,
-                }
-            else:
-                context_kwargs["no_viewport"] = True
-            if storage_state:
-                context_kwargs["storage_state"] = storage_state
-                logger.info("loading_context_from_storage_state", path=storage_state)
-
-            try:
-                context = await browser.new_context(**context_kwargs)
-                
-                # Set default timeouts
-                context.set_default_timeout(self._settings.browser_timeout)
-                context.set_default_navigation_timeout(self._settings.browser_timeout)
-
-                self._contexts[profile_name] = context
-                return context
-            except Exception as exc:
-                logger.error("failed_to_create_context", error=str(exc))
-                raise BrowserException(f"Failed to create context for profile '{profile_name}': {exc}") from exc
+            # A context must already belong to the embedded Floating Browser.
+            # Creating one here would create an independent automation session.
+            session = getattr(self._browser_manager, "session", None)
+            page = await session.get_page() if session else None
+            if not page or page.is_closed():
+                raise BrowserException(
+                    "Aether Floating Browser is unavailable; external browser launch is disabled."
+                )
+            context = page.context
+            self._contexts[profile_name] = context
+            logger.info("using_existing_embedded_browser_context", profile=profile_name)
+            return context
 
     async def save_context_state(self, profile_name: str = "default") -> None:
         """Saves the context cookies and storage state to a persistent state file."""
