@@ -10,11 +10,14 @@ export function BrowserWindow() {
   const {
     state: browserState,
     updateBounds,
+    switchBrowserTab,
     reload,
     goBack,
     goForward,
     hideBrowser,
     showBrowser,
+    setWindowDragging,
+    snapTo,
   } = useBrowserStore();
 
   const [position, setPosition] = useState(() => ({
@@ -34,6 +37,16 @@ export function BrowserWindow() {
   const containerRef = useRef<HTMLDivElement>(null);
   const contentAreaRef = useRef<HTMLDivElement>(null);
   const animFrameRef = useRef<number | null>(null);
+  const dragPointerIdRef = useRef<number | null>(null);
+  const dragPositionRef = useRef(position);
+
+  const getTabLabel = (url: string) => {
+    try {
+      return new URL(url).hostname.replace(/^www\./, "");
+    } catch {
+      return url;
+    }
+  };
 
   // Sync actual Chromium webview bounds to match the content area rect
   const syncWebviewBounds = useCallback(() => {
@@ -153,22 +166,44 @@ export function BrowserWindow() {
 
   // Synchronize native webview bounds whenever position, size or visibility changes
   useEffect(() => {
-    if (browserState.isOpen && browserState.isVisible) {
+    if (browserState.isOpen && browserState.isVisible && !isDragging) {
       scheduleSyncBounds();
     }
-  }, [position, size, browserState.isOpen, browserState.isVisible, scheduleSyncBounds]);
+  }, [
+    position,
+    size,
+    isDragging,
+    browserState.isOpen,
+    browserState.isVisible,
+    scheduleSyncBounds,
+  ]);
 
   // Also sync on window resize
   useEffect(() => {
     const onWindowResize = () => {
-      scheduleSyncBounds();
+      setSize((current) => ({
+        width: Math.min(current.width, window.innerWidth),
+        height: Math.min(current.height, window.innerHeight),
+      }));
+      setPosition((current) => ({
+        x: Math.max(0, Math.min(window.innerWidth - size.width, current.x)),
+        y: Math.max(0, Math.min(window.innerHeight - size.height, current.y)),
+      }));
+      if (!isDragging) {
+        scheduleSyncBounds();
+      }
     };
     window.addEventListener("resize", onWindowResize);
     return () => window.removeEventListener("resize", onWindowResize);
-  }, [scheduleSyncBounds]);
+  }, [isDragging, scheduleSyncBounds, size.width, size.height]);
 
-  // Drag handlers with pointer events
-  const handleDragStart = (e: React.MouseEvent) => {
+  const handleDragStart = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    dragPointerIdRef.current = e.pointerId;
+    dragPositionRef.current = position;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    void snapTo("free");
     setIsDragging(true);
     setDragOffset({
       x: e.clientX - position.x,
@@ -177,32 +212,54 @@ export function BrowserWindow() {
   };
 
   useEffect(() => {
-    const handleMouseMove = (e: MouseEvent) => {
-      if (isDragging) {
-        const nextX = Math.max(10, Math.min(window.innerWidth - 100, e.clientX - dragOffset.x));
-        const nextY = Math.max(10, Math.min(window.innerHeight - 100, e.clientY - dragOffset.y));
-        setPosition({ x: nextX, y: nextY });
-        scheduleSyncBounds();
-      }
+    if (!isDragging) return;
+
+    void setWindowDragging(true);
+    const handlePointerMove = (e: PointerEvent) => {
+      if (e.pointerId !== dragPointerIdRef.current) return;
+      const maxX = Math.max(0, window.innerWidth - size.width);
+      const maxY = Math.max(0, window.innerHeight - size.height);
+      const nextX = Math.max(0, Math.min(maxX, e.clientX - dragOffset.x));
+      const nextY = Math.max(0, Math.min(maxY, e.clientY - dragOffset.y));
+      dragPositionRef.current = { x: nextX, y: nextY };
+      setPosition({ x: nextX, y: nextY });
     };
 
-    const handleMouseUp = () => {
-      if (isDragging) {
-        setIsDragging(false);
-        scheduleSyncBounds();
+    const handlePointerEnd = (e: PointerEvent) => {
+      if (e.pointerId !== dragPointerIdRef.current) return;
+      dragPointerIdRef.current = null;
+      const { x } = dragPositionRef.current;
+      const rightDistance = window.innerWidth - (x + size.width);
+      if (x <= 24) {
+        void snapTo("left-half");
+      } else if (rightDistance <= 24) {
+        void snapTo("right-half");
+      } else {
+        void snapTo("free");
       }
+      setIsDragging(false);
+      scheduleSyncBounds();
     };
 
-    if (isDragging) {
-      window.addEventListener("mousemove", handleMouseMove);
-      window.addEventListener("mouseup", handleMouseUp);
-    }
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerEnd);
+    window.addEventListener("pointercancel", handlePointerEnd);
 
     return () => {
-      window.removeEventListener("mousemove", handleMouseMove);
-      window.removeEventListener("mouseup", handleMouseUp);
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerEnd);
+      window.removeEventListener("pointercancel", handlePointerEnd);
+      void setWindowDragging(false);
     };
-  }, [isDragging, dragOffset, scheduleSyncBounds]);
+  }, [
+    isDragging,
+    dragOffset,
+    scheduleSyncBounds,
+    setWindowDragging,
+    size.width,
+    size.height,
+    snapTo,
+  ]);
 
   // Edge / Corner Resize handlers
   const handleResizeStart = (direction: string, e: React.MouseEvent) => {
@@ -299,6 +356,30 @@ export function BrowserWindow() {
         <div className="browser-resize-handle browser-resize-handle-ne" onMouseDown={(e) => handleResizeStart("ne", e)} />
         <div className="browser-resize-handle browser-resize-handle-sw" onMouseDown={(e) => handleResizeStart("sw", e)} />
         <div className="browser-resize-handle browser-resize-handle-se" onMouseDown={(e) => handleResizeStart("se", e)} />
+
+        {browserState.tabs.length > 0 && (
+          <div
+            className="flex min-h-9 items-center gap-1 overflow-x-auto border-b border-white/10 bg-slate-950/75 px-2 py-1"
+            aria-label="Browser tabs"
+          >
+            {browserState.tabs.map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => void switchBrowserTab(tab.id)}
+                className={`max-w-40 shrink-0 truncate rounded-lg border px-3 py-1 text-[10px] transition ${
+                  browserState.activeTabId === tab.id
+                    ? "border-sky-400/50 bg-sky-500/15 text-sky-100"
+                    : "border-transparent text-slate-400 hover:border-white/10 hover:bg-white/5 hover:text-white"
+                }`}
+                aria-pressed={browserState.activeTabId === tab.id}
+                title={tab.url}
+              >
+                {getTabLabel(tab.url)}
+              </button>
+            ))}
+          </div>
+        )}
 
         {/* ── 1. Aether Custom Title Bar & 2. Navigation Toolbar ──────────────── */}
         <FloatingToolbar

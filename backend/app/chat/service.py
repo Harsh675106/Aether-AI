@@ -54,6 +54,8 @@ class ChatService:
         planner: Any = None,
         tool_manager: Any = None,
         browser_service: Any = None,
+        youtube_command_router: Any = None,
+        video_command_router: Any = None,
     ) -> "ChatService":
         logger.info("initializing_chat_service")
 
@@ -80,6 +82,8 @@ class ChatService:
             planner=planner,
             tool_manager=tool_manager,
             browser_service=browser_service,
+            youtube_command_router=youtube_command_router,
+            video_command_router=video_command_router,
         )
 
         return cls(orchestrator=orchestrator, monitoring_service=monitoring_service)
@@ -95,6 +99,13 @@ class ChatService:
         request_source = None
         if isinstance(request.user_metadata, dict):
             request_source = str(request.user_metadata.get("source") or "") or None
+            video_results = request.user_metadata.get("video_results")
+            selected_video = request.user_metadata.get("selected_video")
+            self.orchestrator.set_video_context(
+                request.conversation_id,
+                video_results if isinstance(video_results, list) else [],
+                selected_video if isinstance(selected_video, dict) else None,
+            )
 
         context = RequestContext(conversation_id=request.conversation_id, user_message=last_message)
 
@@ -123,10 +134,16 @@ class ChatService:
                 request_source=request_source,
             ):
                 image_metadata = self.orchestrator.pop_image_search_metadata()
+                video_metadata = self.orchestrator.pop_video_search_metadata()
+                metadata: dict[str, Any] = {}
+                if image_metadata:
+                    metadata["image_search"] = image_metadata
+                if video_metadata:
+                    metadata["video_search"] = video_metadata
                 yield ChatCompletionChunk(
                     delta=token,
                     conversation_id=request.conversation_id,
-                    metadata={"image_search": image_metadata} if image_metadata else None,
+                    metadata=metadata or None,
                 )
 
             latency = context.latency()

@@ -31,6 +31,19 @@ class BrowserOpenRequest(BaseModel):
         return v
 
 
+class BrowserActivePageRequest(BaseModel):
+    url: str
+    tab_id: str | None = None
+
+    @field_validator("url")
+    @classmethod
+    def validate_url(cls, value: str) -> str:
+        value = value.strip()
+        if not value.startswith(("http://", "https://")):
+            raise ValueError("An active browser page must use http or https")
+        return value
+
+
 class BrowserCommandRequest(BaseModel):
     command: str  # "navigate", "search", "screenshot", "click", "type", "scroll", "back", "forward", "reload", "minimize", "restore", "close", "state"
     target: str | None = None
@@ -58,6 +71,17 @@ async def browser_open(
     except Exception as exc:
         logger.error("browser_open_api_failed", exc_info=exc)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post("/browser/active-page")
+async def set_active_browser_page(
+    body: BrowserActivePageRequest,
+    container: Annotated[ApplicationContainer, Depends(get_container)],
+) -> dict[str, Any]:
+    """Keeps backend CDP automation aligned with the selected floating-browser tab."""
+    manager = container.browser_manager()
+    manager.set_active_page(body.url, body.tab_id)
+    return {"success": True, "url": body.url, "tab_id": body.tab_id}
 
 
 @router.post("/browser/command")

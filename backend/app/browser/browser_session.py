@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 from playwright.async_api import Browser, BrowserContext, Page, async_playwright
 
 from app.core.logging import get_logger
@@ -29,6 +30,8 @@ class BrowserSessionManager:
         self._lock = asyncio.Lock()
         self._current_url: str = "https://www.google.com"
         self._page_title: str = "Google"
+        self._active_url: str | None = None
+        self._active_tab_id: str | None = None
 
     @property
     def is_connected(self) -> bool:
@@ -36,6 +39,8 @@ class BrowserSessionManager:
 
     @property
     def current_url(self) -> str:
+        if self._active_url:
+            return self._active_url
         if self._page and not self._page.is_closed():
             try:
                 return self._page.url
@@ -48,11 +53,102 @@ class BrowserSessionManager:
         return self._page_title
 
     async def get_page(self) -> Page | None:
-        """Returns the active Page connected to the floating browser, attempting connection if needed."""
-        if self._page and not self._page.is_closed():
+        """Returns the page matching the active floating-browser tab."""
+        if not self._browser or not self._is_cdp_connected:
+            if not await self.connect():
+                return None
+
+        if self._active_url:
+            active_key = self._url_key(self._active_url)
+            for attempt in range(10):
+                pages = self._open_pages()
+                matching_page = next(
+                    (page for page in pages if self._url_key(page.url) == active_key),
+                    None,
+                )
+                if matching_page:
+                    self._set_active_page(matching_page)
+                    return matching_page
+                if attempt < 9:
+                    await asyncio.sleep(0.1)
+            logger.error(
+                "active_browser_tab_not_found",
+                url=self._active_url,
+                tab_id=self._active_tab_id,
+            )
+            return None
+
+        pages = self._open_pages()
+        if not pages:
+            self._page = None
+            self._context = None
+            return None
+
+        if self._page in pages:
             return self._page
-        await self.connect()
+
+        browser_pages = [
+            page
+            for page in pages
+            if not page.url.startswith(("http://localhost", "tauri://", "about:blank"))
+        ]
+        if not browser_pages:
+            return None
+
+        self._set_active_page(browser_pages[-1])
         return self._page
+
+    def _open_pages(self) -> list[Page]:
+        if not self._browser:
+            return []
+        return [
+            page
+            for context in self._browser.contexts
+            for page in context.pages
+            if not page.is_closed()
+        ]
+
+    def set_active_page(self, url: str, tab_id: str | None = None) -> None:
+        """Sets the floating-browser tab that subsequent automation should target."""
+        self._active_url = url
+        self._active_tab_id = tab_id
+        page = self._find_page_for_url(url)
+        if page is not None:
+            self._set_active_page(page)
+
+    def _find_page_for_url(self, url: str) -> Page | None:
+        if not self._browser:
+            return None
+        url_key = self._url_key(url)
+        return next(
+            (
+                page
+                for context in self._browser.contexts
+                for page in context.pages
+                if not page.is_closed() and self._url_key(page.url) == url_key
+            ),
+            None,
+        )
+
+    def _set_active_page(self, page: Page) -> None:
+        self._page = page
+        self._context = page.context
+        self._current_url = page.url
+        self._active_url = page.url
+
+    @staticmethod
+    def _url_key(url: str) -> str:
+        parsed = urlsplit(url)
+        path = parsed.path.rstrip("/") or "/"
+        return urlunsplit(
+            (
+                parsed.scheme.lower(),
+                parsed.netloc.lower(),
+                path,
+                parsed.query,
+                "",
+            )
+        )
 
     async def connect(self) -> bool:
         """Connects to the embedded Chromium WebView2 instance via CDP port 9222."""
@@ -82,10 +178,26 @@ class BrowserSessionManager:
 
                 # WebView2 exposes both Aether's UI and its child browser view over
                 # CDP.  The external page is the authoritative floating browser.
-                self._page = next(
-                    (page for page in pages if not page.url.startswith(("http://localhost", "tauri://", "about:blank"))),
-                    pages[-1],
-                )
+                if self._active_url:
+                    self._page = next(
+                        (
+                            page
+                            for page in pages
+                            if self._url_key(page.url) == self._url_key(self._active_url)
+                        ),
+                        None,
+                    )
+                if self._page is None:
+                    self._page = next(
+                        (
+                            page
+                            for page in pages
+                            if not page.url.startswith(
+                                ("http://localhost", "tauri://", "about:blank")
+                            )
+                        ),
+                        pages[-1],
+                    )
                 self._context = self._page.context
 
                 self._current_url = self._page.url
@@ -110,6 +222,7 @@ class BrowserSessionManager:
     def update_url(self, url: str, title: str | None = None) -> None:
         """Updates internal URL & title tracking (used when synchronized via API or events)."""
         self._current_url = url
+        self._active_url = url
         if title:
             self._page_title = title
 
@@ -141,4 +254,3 @@ class BrowserSessionManager:
                     pass
                 self._playwright = None
             logger.info("disconnected_from_floating_browser_session")
-

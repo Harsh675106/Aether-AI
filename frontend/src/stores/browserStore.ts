@@ -5,7 +5,10 @@ import {
   BrowserLayout,
   SnapPosition,
   BROWSER_LAYOUTS,
+  BrowserTab,
+  NativeBrowserState,
 } from '@/types/browser';
+import { apiPost } from '@/services/apiClient';
 import { normalizeUrl } from '@/voice/browserCommands';
 
 interface BrowserStore {
@@ -14,6 +17,7 @@ interface BrowserStore {
 
   openBrowser: (url?: string, bounds?: { x: number; y: number; width: number; height: number }) => Promise<void>;
   navigateBrowser: (url: string) => Promise<void>;
+  switchBrowserTab: (tabId: string) => Promise<void>;
   updateBounds: (x: number, y: number, width: number, height: number) => Promise<void>;
   showBrowser: () => Promise<void>;
   hideBrowser: () => Promise<void>;
@@ -27,17 +31,21 @@ interface BrowserStore {
   goBack: () => Promise<void>;
   goForward: () => Promise<void>;
   reload: () => Promise<void>;
+  setWindowDragging: (dragging: boolean) => Promise<void>;
 
   // Internal state setters used by BrowserProvider
   _setOpen: (isOpen: boolean) => void;
   _setVisible: (isVisible: boolean) => void;
   _setCurrentUrl: (url: string) => void;
+  _setTabUrl: (tabId: string, url: string) => void;
 }
 
 const DEFAULT_STATE: BrowserState = {
   isOpen: false,
   isVisible: false,
   currentUrl: 'https://www.google.com',
+  tabs: [],
+  activeTabId: null,
   layout: 'floating',
   snapPosition: 'free',
   alwaysOnTop: false,
@@ -47,19 +55,28 @@ const DEFAULT_STATE: BrowserState = {
   y: 0,
 };
 
+async function syncActivePage(url: string, tabId: string | null): Promise<void> {
+  try {
+    await apiPost('/browser/active-page', { url, tab_id: tabId });
+  } catch (err) {
+    console.warn('[BrowserStore] Failed to sync active browser tab with automation:', err);
+  }
+}
+
 export const useBrowserStore = create<BrowserStore>((set, get) => ({
   state: { ...DEFAULT_STATE },
   lastUrl: 'https://www.google.com',
 
   openBrowser: async (url?: string, bounds?: { x: number; y: number; width: number; height: number }) => {
     const targetUrl = normalizeUrl(url?.trim() || get().state.currentUrl || 'https://www.google.com');
+    let nativeState: NativeBrowserState | undefined;
 
     // Record the native open intent before mounting BrowserWindow. The mounted
     // component measures its real content area in a layout effect and is the
     // only code path that attaches the child WebView when no explicit bounds
     // were supplied.
     try {
-      await invoke('browser_open', {
+      nativeState = await invoke<NativeBrowserState>('browser_open', {
         url: targetUrl,
         x: bounds?.x,
         y: bounds?.y,
@@ -72,14 +89,17 @@ export const useBrowserStore = create<BrowserStore>((set, get) => ({
     }
 
     set((s) => ({
-      lastUrl: targetUrl,
+      lastUrl: nativeState?.url ?? targetUrl,
       state: {
         ...s.state,
         isOpen: true,
         isVisible: true,
-        currentUrl: targetUrl,
+        currentUrl: nativeState?.url ?? targetUrl,
+        tabs: nativeState?.tabs ?? s.state.tabs,
+        activeTabId: nativeState?.active_tab_id ?? s.state.activeTabId,
       },
     }));
+    await syncActivePage(nativeState?.url ?? targetUrl, nativeState?.active_tab_id ?? null);
   },
 
   navigateBrowser: async (url: string) => {
@@ -97,6 +117,35 @@ export const useBrowserStore = create<BrowserStore>((set, get) => ({
     } catch (err) {
       console.warn('[BrowserStore] browser_navigate invoke note:', err);
     }
+    set((s) => ({
+      state: {
+        ...s.state,
+        tabs: s.state.tabs.map((tab) =>
+          tab.id === s.state.activeTabId ? { ...tab, url: targetUrl } : tab
+        ),
+      },
+    }));
+    await syncActivePage(targetUrl, get().state.activeTabId);
+  },
+
+  switchBrowserTab: async (tabId: string) => {
+    try {
+      const nativeState = await invoke<NativeBrowserState>('browser_switch_tab', { tabId });
+      set((s) => ({
+        lastUrl: nativeState.url,
+        state: {
+          ...s.state,
+          isOpen: true,
+          isVisible: true,
+          currentUrl: nativeState.url,
+          tabs: nativeState.tabs,
+          activeTabId: nativeState.active_tab_id,
+        },
+      }));
+      await syncActivePage(nativeState.url, nativeState.active_tab_id);
+    } catch (err) {
+      console.error('[BrowserStore] Failed to switch browser tab:', err);
+    }
   },
 
   updateBounds: async (x: number, y: number, width: number, height: number) => {
@@ -104,6 +153,14 @@ export const useBrowserStore = create<BrowserStore>((set, get) => ({
       await invoke('browser_update_bounds', { x, y, width, height });
     } catch (err) {
       // outside tauri
+    }
+  },
+
+  setWindowDragging: async (dragging: boolean) => {
+    try {
+      await invoke('browser_set_dragging', { dragging });
+    } catch (err) {
+      console.warn('[BrowserStore] Failed to update browser drag state:', err);
     }
   },
 
@@ -273,6 +330,32 @@ export const useBrowserStore = create<BrowserStore>((set, get) => ({
   },
 
   _setCurrentUrl: (url: string) => {
-    set((s) => ({ state: { ...s.state, currentUrl: url }, lastUrl: url }));
+    set((s) => ({
+      state: {
+        ...s.state,
+        currentUrl: url,
+        tabs: s.state.tabs.map((tab) =>
+          tab.id === s.state.activeTabId ? { ...tab, url } : tab
+        ),
+      },
+      lastUrl: url,
+    }));
+  },
+
+  _setTabUrl: (tabId: string, url: string) => {
+    set((s) => {
+      const tabs: BrowserTab[] = s.state.tabs.map((tab) =>
+        tab.id === tabId ? { ...tab, url } : tab
+      );
+      const isActive = s.state.activeTabId === tabId;
+      return {
+        state: {
+          ...s.state,
+          tabs,
+          currentUrl: isActive ? url : s.state.currentUrl,
+        },
+        lastUrl: isActive ? url : s.lastUrl,
+      };
+    });
   },
 }));

@@ -3,6 +3,7 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import { useImageSearch } from "@/components/image-search";
 import { parseBrowserVoiceCommand, normalizeUrl } from "@/voice/browserCommands";
 import { useBrowserStore } from "@/stores/browserStore";
+import { useVideoSearch } from "@/components/videos";
 import type { ChatMessage } from "@/types/chat";
 
 const API_URL = import.meta.env.VITE_AETHER_API_URL ?? "http://localhost:8001/api/v1";
@@ -16,6 +17,7 @@ type SendMessageOptions = {
 export function useChat() {
   const imageSearch = useImageSearch();
   const browserStore = useBrowserStore();
+  const videoSearch = useVideoSearch();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -152,6 +154,8 @@ export function useChat() {
           conversation_id: options?.conversationId ?? "frontend-chat",
           user_metadata: {
             source: options?.source ?? "text",
+            video_results: videoSearch.view === "saved" ? videoSearch.saved : videoSearch.results,
+            selected_video: videoSearch.selected,
           },
         }),
         signal: controller.signal,
@@ -191,6 +195,10 @@ export function useChat() {
             const imageSearchPayload = parsed.metadata?.image_search;
             if (imageSearchPayload?.results?.length) {
               imageSearch.openResults(imageSearchPayload);
+            }
+            const videoSearchPayload = parsed.metadata?.video_search as Record<string, unknown> | undefined;
+            if (videoSearchPayload) {
+              videoSearch.openCommandResults(videoSearchPayload);
             }
 
             // If the backend determined this was a browser action, open the browser
@@ -240,7 +248,7 @@ export function useChat() {
     } finally {
       setIsStreaming(false);
     }
-  }, [imageSearch, browserStore]);
+  }, [imageSearch, browserStore, videoSearch]);
 
   const addLocalResponse = useCallback((userContent: string, assistantContent: string) => {
     setMessages((current) => [

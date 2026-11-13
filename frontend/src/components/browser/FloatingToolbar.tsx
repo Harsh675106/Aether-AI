@@ -12,12 +12,13 @@ import {
   X,
   Layers,
   Grid,
+  GripVertical,
 } from "lucide-react";
 import { useBrowserStore } from "@/stores/browserStore";
 import type { BrowserLayout, SnapPosition } from "@/types/browser";
 
 interface FloatingToolbarProps {
-  onDragStart?: (e: React.MouseEvent) => void;
+  onDragStart?: (e: React.PointerEvent<HTMLDivElement>) => void;
   isLoading?: boolean;
   onRefresh?: () => void;
   onBack?: () => void;
@@ -83,11 +84,13 @@ export function FloatingToolbar({
     <div className="relative flex flex-col border-b border-white/10 bg-slate-950/90 px-3.5 py-2 text-white backdrop-blur-md select-none">
       {/* ── Aether Custom Title Bar ────────────────────────────────────────── */}
       <div
-        onMouseDown={onDragStart}
-        className="flex cursor-grab active:cursor-grabbing items-center justify-between pb-1.5"
+        onPointerDown={onDragStart}
+        title="Drag to move the browser"
+        className="flex min-h-8 touch-none cursor-grab active:cursor-grabbing items-center justify-between pb-1.5"
       >
         {/* Floating Indicator & Title */}
         <div className="flex items-center gap-2">
+          <GripVertical className="h-4 w-4 text-slate-500" aria-hidden="true" />
           <span className="relative flex h-2.5 w-2.5">
             <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-sky-400 opacity-75" />
             <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-sky-500" />
@@ -101,7 +104,7 @@ export function FloatingToolbar({
         </div>
 
         {/* Title Bar Actions */}
-        <div className="flex items-center gap-1" onMouseDown={(e) => e.stopPropagation()}>
+        <div className="flex items-center gap-1" onPointerDown={(e) => e.stopPropagation()}>
           {/* Always on top */}
           <button
             type="button"
@@ -163,7 +166,7 @@ export function FloatingToolbar({
       </div>
 
       {/* ── Aether Navigation Toolbar ───────────────────────────────────────── */}
-      <div className="flex items-center gap-2 pt-0.5" onMouseDown={(e) => e.stopPropagation()}>
+      <div className="flex items-center gap-2 pt-0.5" onPointerDown={(e) => e.stopPropagation()}>
         {/* Navigation Buttons */}
         <div className="flex items-center gap-1">
           <button

@@ -13,6 +13,8 @@ export interface BrowserState {
   isOpen: boolean;
   isVisible: boolean;
   currentUrl: string;
+  tabs: BrowserTab[];
+  activeTabId: string | null;
   layout: BrowserLayout;
   snapPosition: SnapPosition;
   alwaysOnTop: boolean;
@@ -20,6 +22,17 @@ export interface BrowserState {
   height: number;
   x: number;
   y: number;
+}
+
+export interface BrowserTab {
+  id: string;
+  url: string;
+}
+
+export interface NativeBrowserState {
+  url: string;
+  tabs: BrowserTab[];
+  active_tab_id: string | null;
 }
 
 export interface BrowserCommand {

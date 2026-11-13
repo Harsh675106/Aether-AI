@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, ReactNode } from 'react';
 import { listen, UnlistenFn } from '@tauri-apps/api/event';
 import { useBrowserStore } from '@/stores/browserStore';
 import { useBrowser } from '@/hooks/useBrowser';
+import { apiPost } from '@/services/apiClient';
 
 // ── Context ───────────────────────────────────────────────────────────────────
 
@@ -61,11 +62,27 @@ export function BrowserProvider({ children }: BrowserProviderProps) {
       unlisten.push(unlistenNav);
 
       // Event emitted by Tauri native webview when URL changes
-      const unlistenUrlChanged = await listen<string>('browser-url-changed', (event) => {
-        if (event.payload) {
-          store._setCurrentUrl(event.payload);
+      const unlistenUrlChanged = await listen<{ tab_id: string; url: string }>(
+        'browser-url-changed',
+        (event) => {
+          if (event.payload?.tab_id && event.payload.url) {
+            store._setTabUrl(event.payload.tab_id, event.payload.url);
+            if (
+              useBrowserStore.getState().state.activeTabId === event.payload.tab_id
+            ) {
+              void apiPost('/browser/active-page', {
+                url: event.payload.url,
+                tab_id: event.payload.tab_id,
+              }).catch((err) => {
+                console.warn(
+                  '[BrowserProvider] Failed to sync active browser tab with automation:',
+                  err
+                );
+              });
+            }
+          }
         }
-      });
+      );
       unlisten.push(unlistenUrlChanged);
     }
 

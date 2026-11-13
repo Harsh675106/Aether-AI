@@ -13,15 +13,17 @@ Verifies all 11 acceptance criteria:
 10. No duplicate browser window or manager is created.
 11. Tool manager and Planner integration.
 """
-import pytest
+import base64
 from pathlib import Path
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+from app.agents.planner import PlaceholderPlanner
 from app.browser.browser_manager import BrowserManager
 from app.browser.browser_registry import get_global_browser_manager
-from app.browser.models import BrowserLayoutMode, SnapPosition
+from app.browser.models import BrowserLayoutMode
 from app.core.settings import Settings
 from app.tools.manager import PlaceholderToolManager
-from app.agents.planner import PlaceholderPlanner
 
 
 class EmbeddedPage:
@@ -29,6 +31,17 @@ class EmbeddedPage:
 
     def __init__(self) -> None:
         self.url = "https://www.google.com"
+        self.context = MagicMock()
+        self.context.new_cdp_session = AsyncMock(
+            return_value=MagicMock(
+                send=AsyncMock(
+                    return_value={
+                        "data": base64.b64encode(b"embedded-webview-screenshot").decode("ascii")
+                    }
+                ),
+                detach=AsyncMock(),
+            )
+        )
 
     def is_closed(self) -> bool:
         return False
@@ -38,9 +51,6 @@ class EmbeddedPage:
 
     async def title(self) -> str:
         return "Aether embedded page"
-
-    async def screenshot(self, path: str, **_: object) -> None:
-        Path(path).write_bytes(b"embedded-webview-screenshot")
 
     async def click(self, *_: object, **__: object) -> None:
         return None
@@ -64,7 +74,9 @@ def settings():
 def browser_manager(settings):
     # Reset singleton
     BrowserManager._instance = None
-    manager = BrowserManager.get_instance(settings)
+    screenshot_store = MagicMock()
+    screenshot_store.record = AsyncMock(return_value="test-screenshot-id")
+    manager = BrowserManager.get_instance(settings, screenshot_store=screenshot_store)
     page = EmbeddedPage()
     manager.session.get_page = AsyncMock(return_value=page)
     return manager
@@ -131,10 +143,17 @@ async def test_clicking_and_typing_interface(browser_manager):
 
 @pytest.mark.asyncio
 async def test_screenshot_capture(browser_manager):
-    """Criterion 6: Screenshot captures browser content."""
-    filepath = await browser_manager.capture_screenshot()
-    assert filepath is not None
-    assert filepath.endswith(".png")
+    """Criterion 6: Screenshot captures browser content into the Files store."""
+    confirmation = await browser_manager.capture_screenshot()
+    assert "saved" in confirmation
+    assert "Files" in confirmation
+    browser_manager.screenshot_store.record.assert_awaited_once()
+    payload = browser_manager.screenshot_store.record.await_args.args[0]
+    assert payload["title"] == "Aether embedded page"
+    assert payload["url"] == "https://www.google.com"
+    assert payload["image_data"].startswith("data:image/png;base64,")
+    assert base64.b64decode(payload["image_data"].split(",", 1)[1]) == b"embedded-webview-screenshot"
+    assert payload["size_bytes"] == len(b"embedded-webview-screenshot")
 
 
 @pytest.mark.asyncio
@@ -217,4 +236,3 @@ async def test_planner_integration():
 
     plan_min = await planner.create_plan("minimize browser")
     assert plan_min == ["minimize"]
-

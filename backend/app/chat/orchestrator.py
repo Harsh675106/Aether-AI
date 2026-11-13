@@ -101,6 +101,8 @@ class ConversationOrchestrator:
         planner: Planner | None = None,
         tool_manager: ToolManager | None = None,
         browser_service: BrowserService | None = None,
+        youtube_command_router: Any = None,
+        video_command_router: Any = None,
     ) -> None:
         self._llm_provider = llm_provider
         self._memory_manager = memory_manager or PlaceholderMemoryManager()
@@ -123,6 +125,13 @@ class ConversationOrchestrator:
         self._planner = planner or PlaceholderPlanner(settings, llm_provider)
         self._tool_manager = tool_manager or PlaceholderToolManager()
         self._browser_service = browser_service
+        if youtube_command_router is None and browser_service is not None:
+            from app.youtube.youtube_command_router import YouTubeCommandRouter
+            from app.youtube.youtube_manager import YouTubeManager
+
+            youtube_command_router = YouTubeCommandRouter(YouTubeManager(browser_service))
+        self._youtube_command_router = youtube_command_router
+        self._video_command_router = video_command_router
 
         self._intent_classifier = IntentClassifier()
         self._routing_engine = RoutingEngine()
@@ -138,6 +147,21 @@ class ConversationOrchestrator:
         payload = self._pending_image_search_metadata
         self._pending_image_search_metadata = None
         return payload
+
+    def pop_video_search_metadata(self) -> dict[str, Any] | None:
+        if self._video_command_router is None:
+            return None
+        return self._video_command_router.pop_search_metadata()
+
+    def set_video_context(
+        self,
+        conversation_id: str | None,
+        results: list[dict[str, Any]],
+        selected: dict[str, Any] | None,
+    ) -> None:
+        if self._video_command_router is not None:
+            self._video_command_router.set_context(conversation_id, results, selected)
+
     def decide(self, messages: list[dict[str, str]]) -> OrchestrationDecision:
         """Compatibility shim for existing tests and callers."""
         user_query = self._last_user_message(messages)
@@ -194,6 +218,34 @@ class ConversationOrchestrator:
         citations: list[dict[str, Any]] = []
 
         try:
+            if self._video_command_router is not None:
+                video_response = await self._video_command_router.execute(
+                    user_query,
+                    conversation_id,
+                )
+                if video_response is not None:
+                    response_parts.append(video_response)
+                    yield video_response
+                    await self._monitoring_logger.response_ready(
+                        conversation_id=conversation_id,
+                        metadata=metadata,
+                    )
+                    return
+
+            if self._youtube_command_router is not None:
+                youtube_response = await self._youtube_command_router.execute(
+                    user_query,
+                    conversation_id,
+                )
+                if youtube_response is not None:
+                    response_parts.append(youtube_response)
+                    yield youtube_response
+                    await self._monitoring_logger.response_ready(
+                        conversation_id=conversation_id,
+                        metadata=metadata,
+                    )
+                    return
+
             direct_response = self._direct_response(intent.category, user_query)
             if direct_response is not None:
                 response_parts.append(direct_response)

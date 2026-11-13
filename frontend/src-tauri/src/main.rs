@@ -22,6 +22,7 @@ fn main() {
             browser_open,
             browser_navigate,
             browser_update_bounds,
+            browser_set_dragging,
             browser_show,
             browser_hide,
             browser_minimize,
@@ -35,6 +36,7 @@ fn main() {
             browser_set_size,
             browser_resize,
             browser_get_state,
+            browser_switch_tab,
             browser_snap,
         ])
         .run(tauri::generate_context!())

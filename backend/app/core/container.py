@@ -1,4 +1,6 @@
 from dataclasses import dataclass, field
+from typing import Any
+
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from app.agents.planner import PlaceholderPlanner
@@ -20,6 +22,9 @@ from app.tools.manager import PlaceholderToolManager
 from app.web.search import SearXNGClient, WebContentExtractor
 from app.workflow.engine import PlaceholderWorkflowEngine
 from app.browser.service import BrowserService
+from app.videos.command_router import VideoCommandRouter
+from app.videos.service import SearXNGVideoSearchService
+from app.videos.storage import SavedVideoStore
 
 
 
@@ -46,6 +51,8 @@ class ApplicationContainer:
             planner=self.planner(),
             tool_manager=self.tool_manager(),
             browser_service=self.browser_service(),
+            youtube_command_router=self.youtube_command_router(),
+            video_command_router=self.video_command_router(),
         )
 
 
@@ -86,6 +93,23 @@ class ApplicationContainer:
             monitoring_service=self.monitoring_service(),
             history_store=self.image_history_store(),
         )
+
+    def saved_video_store(self) -> SavedVideoStore:
+        if not hasattr(self, "_saved_video_store"):
+            self._saved_video_store = SavedVideoStore(settings=self.settings)
+        return self._saved_video_store
+
+    def video_search_service(self) -> SearXNGVideoSearchService:
+        return SearXNGVideoSearchService(self.settings.searxng_base_url)
+
+    def video_command_router(self) -> VideoCommandRouter:
+        if not hasattr(self, "_video_command_router"):
+            self._video_command_router = VideoCommandRouter(
+                self.video_search_service(),
+                self.saved_video_store(),
+                self.browser_manager(),
+            )
+        return self._video_command_router
 
     def tool_manager(self) -> PlaceholderToolManager:
         return PlaceholderToolManager()
@@ -132,6 +156,16 @@ class ApplicationContainer:
 
     def browser_service(self) -> Any:
         return self.browser_manager()
+
+    def youtube_command_router(self) -> Any:
+        if not hasattr(self, "_youtube_command_router"):
+            from app.youtube.youtube_command_router import YouTubeCommandRouter
+            from app.youtube.youtube_manager import YouTubeManager
+
+            self._youtube_command_router = YouTubeCommandRouter(
+                YouTubeManager(self.browser_manager())
+            )
+        return self._youtube_command_router
 
     def browser_controller(self) -> Any:
         return self.browser_manager().controller

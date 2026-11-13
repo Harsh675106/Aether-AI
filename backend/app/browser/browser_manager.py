@@ -157,6 +157,10 @@ class BrowserManager:
         """Returns the URL of the active webpage."""
         return await self.automation.get_current_url()
 
+    def set_active_page(self, url: str, tab_id: str | None = None) -> None:
+        """Synchronizes the selected native browser tab with CDP automation."""
+        self.session.set_active_page(url, tab_id)
+
     async def get_page_content(self, text_only: bool = True) -> str:
         """Extracts text or HTML from the active floating browser page."""
         return await self.automation.get_page_content(text_only=text_only)

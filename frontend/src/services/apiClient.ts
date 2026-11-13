@@ -22,6 +22,23 @@ export async function apiGet<T>(path: string): Promise<T> {
   return (await response.json()) as T;
 }
 
+export async function apiPost<T>(path: string, body: unknown): Promise<T> {
+  const response = await fetch(`${API_URL}${path}`, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Aether API POST request failed: ${response.status}`);
+  }
+
+  return (await response.json()) as T;
+}
+
 export async function apiDelete<T>(path: string): Promise<T> {
   const response = await fetch(`${API_URL}${path}`, {
     method: "DELETE",
@@ -36,4 +53,3 @@ export async function apiDelete<T>(path: string): Promise<T> {
 
   return (await response.json()) as T;
 }
-

@@ -122,3 +122,16 @@ engines:
   - name: wikicommons
     disabled: false
     weight: 1.0
+
+  # Videos (enabled by the SearXNG videos category)
+  - name: youtube
+    disabled: false
+    weight: 2.0
+
+  - name: dailymotion
+    disabled: false
+    weight: 1.2
+
+  - name: vimeo
+    disabled: false
+    weight: 1.0

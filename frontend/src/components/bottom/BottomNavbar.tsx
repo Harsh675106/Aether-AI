@@ -1,12 +1,16 @@
+import { useCallback, useState } from "react";
 import { motion } from "framer-motion";
-import { FolderOpen, Globe, Images } from "lucide-react";
+import { BrainCircuit, FolderOpen, Globe, Images, Video } from "lucide-react";
 
 import { useImageSearch } from "@/components/image-search";
 import { useFiles } from "@/components/files";
 import { useBrowserStore } from "@/stores/browserStore";
+import { useVideoSearch } from "@/components/videos";
+import { PluginShowcaseModal } from "@/components/plugins/PluginShowcaseModal";
+import { MemoryModal } from "@/components/memory/MemoryModal";
 
 const navItems = [
-  "Logs",
+  "Videos",
   "Memory",
   "Tools",
   "Tasks",
@@ -20,6 +24,11 @@ export function BottomNavbar() {
   const { openHistory, history } = useImageSearch();
   const { openFiles, screenshots } = useFiles();
   const { state: browserState, openBrowser, toggleBrowser } = useBrowserStore();
+  const videoSearch = useVideoSearch();
+  const [pluginsOpen, setPluginsOpen] = useState(false);
+  const [memoryOpen, setMemoryOpen] = useState(false);
+  const closePlugins = useCallback(() => setPluginsOpen(false), []);
+  const closeMemory = useCallback(() => setMemoryOpen(false), []);
 
   const handleBrowserClick = () => {
     if (browserState.isOpen) {
@@ -111,6 +120,56 @@ export function BottomNavbar() {
           </button>
 
           {navItems.map((item) => {
+            if (item === "Videos") {
+              return (
+                <button
+                  key={item}
+                  type="button"
+                  onClick={() => videoSearch.open()}
+                  className="group relative inline-flex items-center gap-2 rounded-full border border-white/10 bg-slate-950/15 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.3em] text-white transition duration-300 ease-in-out hover:border-white/30 hover:bg-slate-950/25 hover:text-white hover:shadow-[0_0_18px_rgba(56,189,248,0.28)]"
+                  aria-label="Open video search"
+                  title="Search and save videos"
+                >
+                  <Video className="h-4 w-4 text-cyan-300" />
+                  Videos
+                  <span className="pointer-events-none absolute inset-x-0 bottom-0 h-0.5 scale-x-0 rounded-full bg-gradient-to-r from-white via-cyan-300 to-blue-500 opacity-0 transition duration-300 ease-in-out group-hover:scale-x-100 group-hover:opacity-90" />
+                </button>
+              );
+            }
+            if (item === "Plugins") {
+              return (
+                <button
+                  key={item}
+                  type="button"
+                  onClick={() => setPluginsOpen(true)}
+                  className="group relative inline-flex items-center gap-2 rounded-full border border-fuchsia-300/15 bg-slate-950/15 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.3em] text-white transition duration-300 ease-in-out hover:border-fuchsia-200/35 hover:bg-fuchsia-400/[0.08] hover:text-white hover:shadow-[0_0_20px_rgba(217,70,239,0.16)]"
+                  aria-label="Explore Aether plugins and technologies"
+                  title="Explore the Aether project stack"
+                >
+                  <span className="flex h-4 w-4 items-center justify-center rounded-md border border-fuchsia-200/30 bg-gradient-to-br from-fuchsia-300/30 to-cyan-300/20 text-[9px] font-black text-fuchsia-100">
+                    A
+                  </span>
+                  Plugins
+                  <span className="pointer-events-none absolute inset-x-0 bottom-0 h-0.5 scale-x-0 rounded-full bg-gradient-to-r from-fuchsia-300 via-cyan-200 to-blue-400 opacity-0 transition duration-300 ease-in-out group-hover:scale-x-100 group-hover:opacity-90" />
+                </button>
+              );
+            }
+            if (item === "Memory") {
+              return (
+                <button
+                  key={item}
+                  type="button"
+                  onClick={() => setMemoryOpen(true)}
+                  className="group relative inline-flex items-center gap-2 rounded-full border border-violet-300/15 bg-slate-950/15 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.3em] text-white transition duration-300 ease-in-out hover:border-violet-200/35 hover:bg-violet-400/[0.08] hover:shadow-[0_0_20px_rgba(167,139,250,0.18)]"
+                  aria-label="Open Aether memory"
+                  title="View and search Aether's memories"
+                >
+                  <BrainCircuit className="h-4 w-4 text-violet-200" />
+                  Memory
+                  <span className="pointer-events-none absolute inset-x-0 bottom-0 h-0.5 scale-x-0 rounded-full bg-gradient-to-r from-violet-300 via-cyan-200 to-blue-400 opacity-0 transition duration-300 ease-in-out group-hover:scale-x-100 group-hover:opacity-90" />
+                </button>
+              );
+            }
             if (item === "Files") {
               return (
                 <button
@@ -141,6 +200,8 @@ export function BottomNavbar() {
           })}
         </div>
       </motion.nav>
+      <PluginShowcaseModal isOpen={pluginsOpen} onClose={closePlugins} />
+      <MemoryModal isOpen={memoryOpen} onClose={closeMemory} />
     </>
   );
 }
